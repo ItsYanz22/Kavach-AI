@@ -5,7 +5,16 @@
  * is configured in exactly one place.
  */
 
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API_BASE = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
+
+export function getBackendUrl() {
+  return API_BASE;
+}
+
+export function getWsUrl() {
+  const wsBase = API_BASE.replace(/^http/, "ws");
+  return `${wsBase.replace(/\/$/, "")}/ws/war-room`;
+}
 
 export interface ApiEnvelope<T> {
   success: boolean;

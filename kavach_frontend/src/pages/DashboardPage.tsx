@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { Shield, AlertTriangle, Eye, CheckCircle, RefreshCw } from "lucide-react";
 import CircularProgress from "@/components/CircularProgress";
 import GlowCard from "@/components/GlowCard";
-import { fetchHistory, type HistoryEntry } from "@/lib/api";
+import { fetchHistory, getBackendUrl, type HistoryEntry } from "@/lib/api";
 
 const CountUpNumber = ({ value, className }: { value: number; className?: string }) => {
   const [display, setDisplay] = useState(0);
@@ -32,7 +32,7 @@ const DashboardPage = () => {
       const res = await fetchHistory();
       setHistory(res.data.history);
       
-      const backendUrl = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
+      const backendUrl = getBackendUrl();
       const hRes = await fetch(`${backendUrl}/health-score`);
       if (hRes.ok) {
         const hData = await hRes.json();

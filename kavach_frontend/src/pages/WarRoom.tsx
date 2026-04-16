@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { AlertTriangle, Clock, Phone, Video, MoreVertical, Smile, Paperclip, Mic, Send, ShieldAlert } from "lucide-react";
 import ChatBubble from "@/components/ChatBubble";
 import AlertOverlay from "@/components/AlertOverlay";
+import { getWsUrl } from "@/lib/api";
 
 const WarRoom = () => {
   const navigate = useNavigate();
@@ -28,7 +29,7 @@ const WarRoom = () => {
 
   const connectWs = () => {
     if (wsRef.current) wsRef.current.close();
-    const wsUrl = import.meta.env.VITE_WS_URL || "ws://localhost:8000/ws/war-room";
+    const wsUrl = getWsUrl();
     const ws = new WebSocket(wsUrl);
     
     ws.onopen = () => {

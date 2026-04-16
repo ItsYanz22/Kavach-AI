@@ -2,7 +2,7 @@
 FROM node:18-alpine AS frontend
 WORKDIR /frontend
 COPY kavach_frontend/package*.json ./
-RUN npm install --production
+RUN npm install
 COPY kavach_frontend/ .
 RUN npm run build
 
