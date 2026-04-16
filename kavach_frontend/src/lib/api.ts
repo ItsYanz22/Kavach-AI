@@ -5,7 +5,7 @@
  * is configured in exactly one place.
  */
 
-const API_BASE = import.meta.env.VITE_API_URL ?? "";
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 export interface ApiEnvelope<T> {
   success: boolean;
@@ -20,7 +20,9 @@ export interface DetectResult {
 }
 
 export interface ExplainResult {
-  indicators: string;
+  message_parts: { text: string; highlight_index: number | null }[];
+  highlights: { label: string; color: string; icon: string; tooltip: string; text: string }[];
+  reasons: string[];
 }
 
 export interface ActionResult {

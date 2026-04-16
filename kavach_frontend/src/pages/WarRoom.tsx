@@ -12,71 +12,79 @@ const WarRoom = () => {
   const [showAlert, setShowAlert] = useState(false);
   const [visibleMessages, setVisibleMessages] = useState(0);
   const [typingVisible, setTypingVisible] = useState(false);
-  const [scenarioIndex, setScenarioIndex] = useState(0);
   const [paymentStage, setPaymentStage] = useState<"idle" | "processing" | "flash" | "debited">("idle");
   const [debitedAmount, setDebitedAmount] = useState(0);
+  
+  const [messages, setMessages] = useState<{ sender: "received" | "sent", message: string, time: string, senderName?: string }[]>([]);
+  const [userInput, setUserInput] = useState("");
+  const wsRef = useRef<WebSocket | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  
+  const [scamAmount, setScamAmount] = useState<number>(2847);
+  const [scamTip, setScamTip] = useState<string>("Real utility companies never threaten immediate disconnection via SMS, and never use shortened links for payments.");
+  const [scamType, setScamType] = useState<string>("Electricity Scam");
 
-  const scenarios = useMemo(
-    () => [
-      [
-        {
-          sender: "received" as const,
-          senderName: "+91 9876XXXXX",
-          message: "URGENT: Your electricity connection will be DISCONNECTED in 30 minutes due to unpaid bill of INR 2,847.",
-          time: "2:34 PM",
-        },
-        {
-          sender: "received" as const,
-          message: "Pay immediately to avoid disconnection:\nbit.ly/pay-electric-now",
-          time: "2:34 PM",
-        },
-        {
-          sender: "received" as const,
-          message: "This is your FINAL WARNING. Ignore at your own risk.",
-          time: "2:35 PM",
-        },
-      ],
-      [
-        {
-          sender: "received" as const,
-          senderName: "BANK-ALERT",
-          message: "Your OTP is 4829. Do NOT share with anyone.",
-          time: "6:17 PM",
-        },
-        {
-          sender: "received" as const,
-          message: "Bank Support: Please share OTP to verify your account immediately.",
-          time: "6:18 PM",
-        },
-        {
-          sender: "received" as const,
-          message: "Failure to verify now may freeze your account access.",
-          time: "6:18 PM",
-        },
-      ],
-    ],
-    []
-  );
-  const messages = scenarios[scenarioIndex];
   const dangerMode = countdown <= 10;
 
-  // Simulate messages arriving one by one with typing indicator
+  const connectWs = () => {
+    if (wsRef.current) wsRef.current.close();
+    const wsUrl = import.meta.env.VITE_WS_URL || "ws://localhost:8000/ws/war-room";
+    const ws = new WebSocket(wsUrl);
+    
+    ws.onopen = () => {
+      ws.send(jsonStr({ message: "Generate a randomized scam scenario as if you are texting me for the first time." }));
+      setTypingVisible(true);
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.message) {
+          setMessages(prev => [...prev, {
+            sender: "received",
+            senderName: data.sender || "Unknown",
+            message: data.message,
+            time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
+          }]);
+          setVisibleMessages(prev => prev + 1);
+          setTypingVisible(false);
+
+          if (data.amount) setScamAmount(data.amount);
+          if (data.tip) setScamTip(data.tip);
+          if (data.scam_type) setScamType(data.scam_type);
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    };
+    wsRef.current = ws;
+  };
+
+  const jsonStr = (obj: any) => JSON.stringify(obj);
+
   useEffect(() => {
-    if (visibleMessages >= messages.length) {
-      setTypingVisible(false);
-      return;
-    }
+    connectWs();
+    return () => {
+      if (wsRef.current) wsRef.current.close();
+    };
+  }, []);
 
-    // Show typing first
+  const handleSend = () => {
+    if (!userInput.trim() || !wsRef.current) return;
+    setMessages(prev => [...prev, {
+      sender: "sent",
+      message: userInput,
+      time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
+    }]);
+    setVisibleMessages(prev => prev + 1);
+    wsRef.current.send(jsonStr({ message: userInput }));
+    setUserInput("");
     setTypingVisible(true);
-    const typingTimer = setTimeout(() => {
-      setTypingVisible(false);
-      setVisibleMessages((v) => v + 1);
-    }, visibleMessages === 0 ? 1200 : 1800);
+  };
 
-    return () => clearTimeout(typingTimer);
-  }, [visibleMessages, messages.length]);
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") handleSend();
+  };
 
   // Auto-scroll
   useEffect(() => {
@@ -99,13 +107,13 @@ const WarRoom = () => {
     const totalFrames = 28;
     const id = setInterval(() => {
       frame += 1;
-      const value = Math.min(2847, Math.round((frame / totalFrames) * 2847));
+      const value = Math.min(scamAmount, Math.round((frame / totalFrames) * scamAmount));
       setDebitedAmount(value);
       if (frame >= totalFrames) clearInterval(id);
     }, 45);
 
     return () => clearInterval(id);
-  }, [paymentStage]);
+  }, [paymentStage, scamAmount]);
 
   const handlePayNow = () => {
     setPaymentStage("processing");
@@ -119,7 +127,8 @@ const WarRoom = () => {
   };
 
   const handleAnalyze = () => {
-    navigate("/analysis");
+    const scamMsg = messages.find(m => m.sender === "received")?.message || "";
+    navigate("/analysis", { state: { text: scamMsg } });
   };
 
   const handleIgnore = () => {
@@ -128,11 +137,12 @@ const WarRoom = () => {
   };
 
   const handleChangeScenario = () => {
+    setMessages([]);
     setVisibleMessages(0);
     setTypingVisible(false);
     setCountdown(30);
     setPaymentStage("idle");
-    setScenarioIndex((current) => (current + 1) % scenarios.length);
+    connectWs();
   };
 
   return (
@@ -332,12 +342,27 @@ const WarRoom = () => {
         <div className="px-2 py-1.5 flex items-center gap-2 wa-header shrink-0">
           <div className="flex-1 flex items-center gap-2 rounded-full wa-input-bar px-3 py-2">
             <Smile className="h-5 w-5 text-muted-foreground shrink-0" />
-            <span className="flex-1 text-sm text-muted-foreground/50">Type a message</span>
+            <input
+              type="text"
+              value={userInput}
+              onChange={(e) => setUserInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Type a message"
+              className="flex-1 text-sm bg-transparent border-none outline-none text-foreground placeholder:text-muted-foreground/50"
+            />
             <Paperclip className="h-5 w-5 text-muted-foreground shrink-0" />
           </div>
-          <div className="w-10 h-10 rounded-full bg-safe flex items-center justify-center shrink-0">
-            <Mic className="h-5 w-5 text-safe-foreground" />
-          </div>
+          <button 
+            onClick={handleSend}
+            disabled={!userInput.trim()}
+            className="w-10 h-10 rounded-full bg-safe flex items-center justify-center shrink-0 disabled:opacity-50 transition-opacity"
+          >
+            {userInput.trim() ? (
+              <Send className="h-5 w-5 text-safe-foreground ml-1" />
+            ) : (
+              <Mic className="h-5 w-5 text-safe-foreground" />
+            )}
+          </button>
         </div>
       </div>
 
@@ -361,7 +386,7 @@ const WarRoom = () => {
               onClick={handlePayNow}
               className="w-full py-4 rounded-xl bg-danger/15 text-danger font-semibold border border-danger/30 hover:bg-danger/25 transition-all duration-300 flex items-center justify-center gap-2"
             >
-              <span className="text-lg">💳</span> Pay Now — ₹2,847
+              <span className="text-lg">💳</span> Pay Now — ₹{scamAmount.toLocaleString("en-IN")}
             </motion.button>
 
             <motion.button
@@ -387,7 +412,7 @@ const WarRoom = () => {
               onClick={handleChangeScenario}
               className="w-full py-3 rounded-xl bg-secondary text-foreground font-semibold border border-border hover:bg-secondary/80 transition-all duration-300"
             >
-              Switch Scenario (OTP Scam Bonus)
+              Load Next Scenario
             </motion.button>
           </div>
 
@@ -399,7 +424,7 @@ const WarRoom = () => {
             className="mt-6 p-3 rounded-lg border border-border bg-secondary/20"
           >
             <p className="text-[11px] text-muted-foreground leading-relaxed">
-              💡 <span className="text-foreground font-medium">Tip:</span> Real utility companies never threaten immediate disconnection via SMS, and never use shortened links for payments.
+              💡 <span className="text-foreground font-medium">Tip:</span> {scamTip}
             </p>
           </motion.div>
         </motion.div>

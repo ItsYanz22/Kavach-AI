@@ -23,14 +23,24 @@ const CountUpNumber = ({ value, className }: { value: number; className?: string
 const DashboardPage = () => {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [mentorScore, setMentorScore] = useState<number | null>(null);
+  const [mentorAlerts, setMentorAlerts] = useState<any[]>([]);
 
   const loadHistory = async () => {
     setLoading(true);
     try {
       const res = await fetchHistory();
       setHistory(res.data.history);
+      
+      const backendUrl = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
+      const hRes = await fetch(`${backendUrl}/health-score`);
+      if (hRes.ok) {
+        const hData = await hRes.json();
+        const mData = hData.data || hData;
+        if (mData.score !== undefined) setMentorScore(mData.score);
+        if (mData.alerts) setMentorAlerts(mData.alerts);
+      }
     } catch {
-      // Backend unreachable – show empty state
       setHistory([]);
     } finally {
       setLoading(false);
@@ -44,13 +54,14 @@ const DashboardPage = () => {
   const scamCount = history.filter((h) => h.classification === "SCAM").length;
   const safeCount = history.filter((h) => h.classification === "SAFE").length;
   const totalCount = history.length;
-  const score = totalCount > 0 ? Math.round((safeCount / totalCount) * 100) : 100;
+  const score = mentorScore !== null ? mentorScore : (totalCount > 0 ? Math.round((safeCount / totalCount) * 100) : 100);
 
-  const alerts = history.slice(0, 4).map((h) => ({
+  const fallbackAlerts = history.slice(0, 4).map((h) => ({
     time: new Date(h.timestamp).toLocaleString(),
     text: `${h.classification} – ${h.message.slice(0, 50)}…`,
     type: h.classification === "SCAM" ? ("danger" as const) : ("safe" as const),
   }));
+  const alerts = mentorAlerts.length > 0 ? mentorAlerts : fallbackAlerts;
 
   return (
     <div className="p-6 md:p-8 max-w-6xl mx-auto space-y-8">
