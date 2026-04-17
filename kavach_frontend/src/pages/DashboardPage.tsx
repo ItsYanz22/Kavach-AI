@@ -54,7 +54,21 @@ const DashboardPage = () => {
   const scamCount = history.filter((h) => h.classification === "SCAM").length;
   const safeCount = history.filter((h) => h.classification === "SAFE").length;
   const totalCount = history.length;
-  const score = mentorScore !== null ? mentorScore : (totalCount > 0 ? Math.round((safeCount / totalCount) * 100) : 100);
+  
+  const xp = safeCount * 50 - scamCount * 20 + totalCount * 10;
+  const currentXP = Math.max(xp, 0);
+  const level = Math.floor(currentXP / 100) + 1;
+  const xpInCurrentLevel = currentXP % 100;
+  
+  let rankStr = "Novice";
+  let rankColor = "text-cyber";
+  if (level >= 10) {
+    rankStr = "Cyber Knight";
+    rankColor = "text-safe";
+  } else if (level >= 5) {
+    rankStr = "Defender";
+    rankColor = "text-warning";
+  }
 
   const fallbackAlerts = history.slice(0, 4).map((h) => ({
     time: new Date(h.timestamp).toLocaleString(),
@@ -87,30 +101,42 @@ const DashboardPage = () => {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <GlowCard glowColor="safe" delay={0.1}>
           <div className="flex flex-col items-center gap-4">
-            <h3 className="text-sm font-medium text-muted-foreground">Security Score</h3>
-            <CircularProgress value={score} color="hsl(var(--safe))" />
+            <h3 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+              <span>RANK:</span>
+              <span className={`font-bold ${rankColor} uppercase tracking-wider`}>{rankStr}</span>
+            </h3>
+            <CircularProgress 
+              value={xpInCurrentLevel} 
+              color="hsl(var(--safe))" 
+              innerText={
+                <div className="flex flex-col items-center justify-center pt-1">
+                  <span className="text-3xl font-bold text-foreground">Lv.{level}</span>
+                  <span className="text-[11px] font-medium text-muted-foreground">{xpInCurrentLevel} / 100 XP</span>
+                </div>
+              }
+            />
           </div>
         </GlowCard>
 
         <GlowCard glowColor="cyber" delay={0.2}>
           <div className="space-y-3">
-            <h3 className="text-sm font-medium text-muted-foreground">Stats</h3>
+            <h3 className="text-sm font-medium text-muted-foreground">Achievements</h3>
             <div className="grid grid-cols-2 gap-3">
               <div className="text-center p-3 rounded-lg bg-secondary/30">
                 <CountUpNumber value={totalCount} className="text-2xl font-bold text-foreground" />
-                <p className="text-xs text-muted-foreground">Scans</p>
+                <p className="text-xs text-muted-foreground">Missions</p>
               </div>
               <div className="text-center p-3 rounded-lg bg-secondary/30">
                 <CountUpNumber value={scamCount} className="text-2xl font-bold text-danger" />
-                <p className="text-xs text-muted-foreground">Threats</p>
+                <p className="text-xs text-muted-foreground">Threats Found</p>
               </div>
               <div className="text-center p-3 rounded-lg bg-secondary/30">
                 <CountUpNumber value={safeCount} className="text-2xl font-bold text-safe" />
-                <p className="text-xs text-muted-foreground">Safe</p>
+                <p className="text-xs text-muted-foreground">Safe Actions</p>
               </div>
               <div className="text-center p-3 rounded-lg bg-secondary/30">
-                <CountUpNumber value={totalCount} className="text-2xl font-bold text-warning" />
-                <p className="text-xs text-muted-foreground">Total</p>
+                <CountUpNumber value={currentXP} className="text-2xl font-bold text-cyber" />
+                <p className="text-xs text-muted-foreground">Total XP</p>
               </div>
             </div>
           </div>

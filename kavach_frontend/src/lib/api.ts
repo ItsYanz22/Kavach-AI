@@ -34,8 +34,14 @@ export interface ExplainResult {
   reasons: string[];
 }
 
+export interface ActionStep {
+  icon: string;
+  text: string;
+  detail: string;
+}
+
 export interface ActionResult {
-  actions: string;
+  actions: ActionStep[];
 }
 
 export interface SimulateResult {

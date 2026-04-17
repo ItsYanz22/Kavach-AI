@@ -6,9 +6,10 @@ interface CircularProgressProps {
   strokeWidth?: number;
   color?: string;
   label?: string;
+  innerText?: React.ReactNode;
 }
 
-const CircularProgress = ({ value, size = 140, strokeWidth = 8, color = "hsl(var(--safe))", label }: CircularProgressProps) => {
+const CircularProgress = ({ value, size = 140, strokeWidth = 8, color = "hsl(var(--safe))", label, innerText }: CircularProgressProps) => {
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
   const offset = circumference - (value / 100) * circumference;
@@ -41,7 +42,7 @@ const CircularProgress = ({ value, size = 140, strokeWidth = 8, color = "hsl(var
           />
         </svg>
         <div className="absolute inset-0 flex items-center justify-center">
-          <span className="text-3xl font-bold text-foreground">{value}%</span>
+          {innerText ? innerText : <span className="text-3xl font-bold text-foreground">{value}%</span>}
         </div>
       </div>
       {label && <span className="text-sm text-muted-foreground">{label}</span>}

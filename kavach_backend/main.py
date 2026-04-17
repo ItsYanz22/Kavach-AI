@@ -160,11 +160,40 @@ def action(data: MessageInput):
         raise HTTPException(status_code=400, detail="Text cannot be empty")
 
     try:
-        result = mentor.send_message(
-            f"What should the user do about this message? Provide a numbered "
-            f"list of recommended actions:\n{data.text}"
+        prompt = (
+            f"What should the user do about this message? Provide a list of recommended actions.\n"
+            f"Message: {data.text}\n\n"
+            f"Return ONLY a valid JSON object matching this schema exactly (no markdown formatting, no backticks):\n"
+            "{\n"
+            '  "actions": [\n'
+            "    {\n"
+            '      "icon": "Ban" or "Phone" or "Shield" or "CheckCircle",\n'
+            '      "text": "Short actionable text (e.g. Do not click links)",\n'
+            '      "detail": "Detailed explanation of why or how to do it"\n'
+            "    }\n"
+            "  ]\n"
+            "}\n"
         )
-        return api_response(True, {"actions": result})
+        result = mentor.send_message(prompt)
+        
+        import json
+        clean_res = result.strip()
+        if clean_res.startswith("```json"): clean_res = clean_res[7:]
+        if clean_res.startswith("```"): clean_res = clean_res[3:]
+        if clean_res.endswith("```"): clean_res = clean_res[:-3]
+        
+        try:
+            res_json = json.loads(clean_res.strip())
+        except json.JSONDecodeError:
+            # Fallback
+            res_json = {
+                "actions": [
+                    { "icon": "Ban", "text": "Do not click unknown links", "detail": "Never open URLs from unknown senders" },
+                    { "icon": "Phone", "text": "Verify with official source", "detail": "Call the company directly using their official number" }
+                ]
+            }
+
+        return api_response(True, res_json)
 
     except Exception as e:
         traceback.print_exc()
