@@ -14,9 +14,12 @@ if "GOOGLE_APPLICATION_CREDENTIALS" in os.environ:
     del os.environ["GOOGLE_APPLICATION_CREDENTIALS"]
 
 # Configure API Key securely from environment
-api_key = os.environ.get("GEMINI_API_KEY", "").strip('"').strip("'").strip()
-if api_key:
-    genai.configure(api_key=api_key)
+api_keys_raw = os.environ.get("GEMINI_API_KEYS", os.environ.get("GEMINI_API_KEY", ""))
+API_KEYS = [k.strip().strip('"').strip("'") for k in api_keys_raw.split(",") if k.strip().strip('"').strip("'")]
+CURRENT_KEY_IDX = 0
+
+if API_KEYS:
+    genai.configure(api_key=API_KEYS[CURRENT_KEY_IDX])
 else:
     print("⚠️  Warning: No GEMINI_API_KEY found. Agents will return fallback messages.")
 
@@ -27,14 +30,17 @@ class AgentManager:
     def __init__(self, agent_type: str):
         self.agent_type = agent_type
 
-        system_instruction = ""
+        self.system_instruction = ""
         if agent_type == "Infiltrator":
-            system_instruction = INFILTRATOR_PROMPT
+            self.system_instruction = INFILTRATOR_PROMPT
         elif agent_type == "Forensic":
-            system_instruction = FORENSIC_PROMPT
+            self.system_instruction = FORENSIC_PROMPT
         elif agent_type == "Mentor":
-            system_instruction = MENTOR_PROMPT
+            self.system_instruction = MENTOR_PROMPT
 
+        self._init_model()
+
+    def _init_model(self):
         try:
             # Auto-detect a working model
             available_models = [
@@ -56,18 +62,27 @@ class AgentManager:
 
             self.model = genai.GenerativeModel(
                 model_name=model_name,
-                system_instruction=system_instruction,
+                system_instruction=self.system_instruction,
             )
-            self.chat = self.model.start_chat(history=[])
-            print(f"[OK] {agent_type} agent initialised with {model_name}")
+            # Preserve history if re-initializing after a key rotation
+            old_history = []
+            if hasattr(self, "chat") and self.chat:
+                try:
+                    old_history = self.chat.history
+                except Exception:
+                    pass
+
+            self.chat = self.model.start_chat(history=old_history)
+            print(f"[OK] {self.agent_type} agent initialised with {model_name}")
 
         except Exception as e:
             self.model = None
             self.chat = None
-            print(f"[ERROR] Failed to initialise {agent_type}: {e}")
+            print(f"[ERROR] Failed to initialise {self.agent_type}: {e}")
 
-    def send_message(self, message: str) -> str:
+    def send_message(self, message: str, retry_count=0) -> str:
         """Send a message to the agent and return its text response."""
+        global CURRENT_KEY_IDX
         if not self.chat:
             return (
                 "Agent unavailable – API key missing or invalid configuration. "
@@ -80,6 +95,15 @@ class AgentManager:
             error_msg = str(e).replace('"', "'")
             print(f"\n[CRITICAL] Gemini AI Error:\n{error_msg}\n")
             if "429" in error_msg or "ResourceExhausted" in error_msg or "quota" in error_msg.lower():
+                 
+                 # Automatic API Key Rotation
+                 if len(API_KEYS) > 1 and retry_count < len(API_KEYS) - 1:
+                     print(f"[INFO] 429 Limit reached. Rotating API key and retrying... ({retry_count+1}/{len(API_KEYS)-1})")
+                     CURRENT_KEY_IDX = (CURRENT_KEY_IDX + 1) % len(API_KEYS)
+                     genai.configure(api_key=API_KEYS[CURRENT_KEY_IDX])
+                     self._init_model()
+                     return self.send_message(message, retry_count=retry_count + 1)
+                     
                  print("[INFO] Activating Fallback Offline Sandbox Mode")
                  if self.agent_type == "Infiltrator":
                      return '{"text": "URGENT: Your bank account is compromised. Submit KYC verification below within 24 hours to prevent asset freeze. http://verify-kyc-now.site/login", "amount": 49999, "tip": "Institutions will never send unverified HTTP links threatening asset freeze.", "scam_type": "KYC Phishing Target"}'
@@ -109,6 +133,14 @@ class AgentManager:
                  elif self.agent_type == "Mentor":
                      if "Evaluate the current session" in message:
                          return '{"score": 75, "alerts": [{"time": "System", "text": "Offline sandbox engaged due to API limits", "type": "warning"}]}'
+                     
+                     if "Provide a list of recommended actions" in message:
+                         return """{
+                             "actions": [
+                                 { "icon": "Ban", "text": "Do not click unknown links", "detail": "Never open URLs from unknown senders" },
+                                 { "icon": "Phone", "text": "Verify with official source", "detail": "Call the company directly using their official number" }
+                             ]
+                         }"""
                      return "1. Do NOT click the link.\n2. Contact the institution through official channels.\n3. Delete the message and block the sender."
                      
             elif "400" in error_msg or "API key not valid" in error_msg:
