@@ -24,8 +24,23 @@ const WarRoom = () => {
   const [scamAmount, setScamAmount] = useState<number>(2847);
   const [scamTip, setScamTip] = useState<string>("Real utility companies never threaten immediate disconnection via SMS, and never use shortened links for payments.");
   const [scamType, setScamType] = useState<string>("Electricity Scam");
+  const [uiTitle, setUiTitle] = useState<string>("⚡ What will you do?");
+  const [uiDescription, setUiDescription] = useState<string>("You received a suspicious message. Choose wisely — one wrong move and you could lose everything.");
+  const [recommendedActions, setRecommendedActions] = useState<{label: string, action_id: string, type: string}[]>([]);
+  const [awaitUserResponse, setAwaitUserResponse] = useState<boolean>(false);
+  const [autoSpamEnabled, setAutoSpamEnabled] = useState(true);
+  const autoSpamTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const dangerMode = countdown <= 10;
+
+  const getApiUrl = () => {
+    const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
+    const host = import.meta.env.VITE_API_URL || `${protocol}//${window.location.hostname}:8000`;
+    return host;
+  };
+
+  // Auto-spam polling has been disabled to enforce a strictly user-driven progression.
+  // The scenario is only generated once upon connection or when "Load Next Scenario" is clicked.
 
   const connectWs = () => {
     if (wsRef.current) wsRef.current.close();
@@ -53,6 +68,10 @@ const WarRoom = () => {
           if (data.amount) setScamAmount(data.amount);
           if (data.tip) setScamTip(data.tip);
           if (data.scam_type) setScamType(data.scam_type);
+          if (data.ui_title) setUiTitle(data.ui_title);
+          if (data.ui_description) setUiDescription(data.ui_description);
+          if (data.recommended_actions) setRecommendedActions(data.recommended_actions);
+          if (data.await_user_response !== undefined) setAwaitUserResponse(data.await_user_response);
         }
       } catch (e) {
         console.error(e);
@@ -65,6 +84,7 @@ const WarRoom = () => {
 
   useEffect(() => {
     connectWs();
+
     return () => {
       if (wsRef.current) wsRef.current.close();
     };
@@ -143,6 +163,8 @@ const WarRoom = () => {
     setTypingVisible(false);
     setCountdown(30);
     setPaymentStage("idle");
+    setAwaitUserResponse(false);
+    
     connectWs();
   };
 
@@ -374,39 +396,76 @@ const WarRoom = () => {
           animate={{ opacity: 1, x: 0 }}
           transition={{ delay: 0.5 }}
         >
-          <h2 className="text-xl font-bold text-foreground mb-1">⚡ What will you do?</h2>
+          <h2 className="text-xl font-bold text-foreground mb-1">{uiTitle}</h2>
           <p className="text-sm text-muted-foreground mb-6">
-            You received a suspicious message. Choose wisely — one wrong move and you could lose everything.
+            {uiDescription}
           </p>
           <p className="text-xs text-cyber mb-4">Experience scams safely before they happen in real life.</p>
 
           <div className="space-y-3">
-            <motion.button
-              whileHover={{ scale: 1.03, boxShadow: "0 0 30px hsla(0,84%,60%,0.4)" }}
-              whileTap={{ scale: 0.97 }}
-              onClick={handlePayNow}
-              className="w-full py-4 rounded-xl bg-danger/15 text-danger font-semibold border border-danger/30 hover:bg-danger/25 transition-all duration-300 flex items-center justify-center gap-2"
-            >
-              <span className="text-lg">💳</span> Pay Now — ₹{scamAmount.toLocaleString("en-IN")}
-            </motion.button>
+            {recommendedActions.length > 0 ? (
+              recommendedActions.map((action, idx) => {
+                let btnColorClass = "bg-secondary/15 text-foreground border-border hover:bg-secondary/25";
+                let shadowColor = "hsla(0,0%,50%,0.3)";
+                
+                if (action.type === "danger") {
+                  btnColorClass = "bg-danger/15 text-danger border-danger/30 hover:bg-danger/25";
+                  shadowColor = "hsla(0,84%,60%,0.4)";
+                } else if (action.type === "warning") {
+                  btnColorClass = "bg-warning/15 text-warning border-warning/30 hover:bg-warning/25";
+                  shadowColor = "hsla(45,93%,58%,0.3)";
+                } else if (action.type === "cyber") {
+                  btnColorClass = "bg-cyber/15 text-cyber border-cyber/30 hover:bg-cyber/25";
+                  shadowColor = "hsla(199,89%,48%,0.3)";
+                }
 
-            <motion.button
-              whileHover={{ scale: 1.03, boxShadow: "0 0 30px hsla(45,93%,58%,0.3)" }}
-              whileTap={{ scale: 0.97 }}
-              onClick={handleIgnore}
-              className="w-full py-4 rounded-xl bg-warning/15 text-warning font-semibold border border-warning/30 hover:bg-warning/25 transition-all duration-300 flex items-center justify-center gap-2"
-            >
-              <span className="text-lg">🚫</span> Ignore & Delete
-            </motion.button>
+                return (
+                  <motion.button
+                    key={idx}
+                    whileHover={{ scale: 1.03, boxShadow: `0 0 30px ${shadowColor}` }}
+                    whileTap={{ scale: 0.97 }}
+                    onClick={() => {
+                      if (action.action_id === "pay") handlePayNow();
+                      else if (action.action_id === "ignore") handleIgnore();
+                      else if (action.action_id === "analyze") handleAnalyze();
+                    }}
+                    className={`w-full py-4 rounded-xl font-semibold border transition-all duration-300 flex items-center justify-center gap-2 ${btnColorClass}`}
+                  >
+                    {action.label} {action.action_id === "pay" && scamAmount > 0 ? `— ₹${scamAmount.toLocaleString("en-IN")}` : ""}
+                  </motion.button>
+                );
+              })
+            ) : (
+              <>
+                <motion.button
+                  whileHover={{ scale: 1.03, boxShadow: "0 0 30px hsla(0,84%,60%,0.4)" }}
+                  whileTap={{ scale: 0.97 }}
+                  onClick={handlePayNow}
+                  className="w-full py-4 rounded-xl bg-danger/15 text-danger font-semibold border border-danger/30 hover:bg-danger/25 transition-all duration-300 flex items-center justify-center gap-2"
+                >
+                  <span className="text-lg">💳</span> Pay Now — ₹{scamAmount.toLocaleString("en-IN")}
+                </motion.button>
 
-            <motion.button
-              whileHover={{ scale: 1.03, boxShadow: "0 0 30px hsla(199,89%,48%,0.3)" }}
-              whileTap={{ scale: 0.97 }}
-              onClick={handleAnalyze}
-              className="w-full py-4 rounded-xl bg-cyber/15 text-cyber font-semibold border border-cyber/30 hover:bg-cyber/25 transition-all duration-300 flex items-center justify-center gap-2"
-            >
-              <span className="text-lg">🔍</span> Analyze with Kavach AI
-            </motion.button>
+                <motion.button
+                  whileHover={{ scale: 1.03, boxShadow: "0 0 30px hsla(45,93%,58%,0.3)" }}
+                  whileTap={{ scale: 0.97 }}
+                  onClick={handleIgnore}
+                  className="w-full py-4 rounded-xl bg-warning/15 text-warning font-semibold border border-warning/30 hover:bg-warning/25 transition-all duration-300 flex items-center justify-center gap-2"
+                >
+                  <span className="text-lg">🚫</span> Ignore & Delete
+                </motion.button>
+
+                <motion.button
+                  whileHover={{ scale: 1.03, boxShadow: "0 0 30px hsla(199,89%,48%,0.3)" }}
+                  whileTap={{ scale: 0.97 }}
+                  onClick={handleAnalyze}
+                  className="w-full py-4 rounded-xl bg-cyber/15 text-cyber font-semibold border border-cyber/30 hover:bg-cyber/25 transition-all duration-300 flex items-center justify-center gap-2"
+                >
+                  <span className="text-lg">🔍</span> Analyze with Kavach AI
+                </motion.button>
+              </>
+            )}
+
             <motion.button
               whileHover={{ scale: 1.03 }}
               whileTap={{ scale: 0.97 }}

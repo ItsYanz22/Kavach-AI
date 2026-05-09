@@ -1,4 +1,6 @@
+from pydantic import json_schema
 import os
+import json
 import traceback
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -268,6 +270,96 @@ def health_score():
         return api_response(True, {"score": 78, "alerts": [{"time": "System", "text": "Fallback score (Mentor error)", "type": "warning"}]})
 
 
+# ──────────────────────────────────────────────
+# 🎰 AUTO-SPAM – Generate random spam for WarRoom
+# ──────────────────────────────────────────────
+@app.get("/auto-spam")
+def auto_spam():
+    """Generate a randomized spam/scam message for the War Room continuous stream."""
+    try:
+        scam_scenarios = [
+            "Generate a realistic UPI phishing scam message.",
+            "Generate a fake OTP/banking credential theft message.",
+            "Generate a digital arrest/government threat message.",
+            "Generate a fake parcel/package delivery scam message.",
+            "Generate an electricity/utility bill scam message.",
+            "Generate a fake lottery/prize winning message.",
+            "Generate an insurance claim fraud message.",
+            "Generate a cryptocurrency investment scam message.",
+        ]
+        
+        import random
+        scenario = random.choice(scam_scenarios)
+        
+        prompt = (
+            f"{scenario}\n"
+            "Make it convincing and use only placeholder links like safesim.link/fraud. "
+            "Include a realistic amount and category. "
+            "Return ONLY a valid JSON object with NO markdown, NO backticks matching this schema:\n"
+            "{\n"
+            '  "scenario_type": "phishing",\n'
+            '  "message": "The actual scam message text",\n'
+            '  "risk_level": "high",\n'
+            '  "ui_title": "⚠ Social Media Phishing Attempt",\n'
+            '  "ui_description": "A suspicious verification link was detected.",\n'
+            '  "recommended_actions": [\n'
+            '    {"label": "🔗 Open Link", "action_id": "pay", "type": "danger"},\n'
+            '    {"label": "🛑 Ignore & Report", "action_id": "ignore", "type": "warning"},\n'
+            '    {"label": "🔍 Inspect URL", "action_id": "analyze", "type": "cyber"}\n'
+            '  ],\n'
+            '  "await_user_response": true,\n'
+            '  "next_step": "wait_for_user",\n'
+            '  "amount": 5000,\n'
+            '  "tip": "A short tip explaining why this is a scam"\n'
+            "}"
+        )
+        
+        agent_reply = infiltrator.send_message(prompt)
+        
+        # Extract JSON from response
+        start = agent_reply.find('{')
+        end = agent_reply.rfind('}')
+        if start != -1 and end != -1:
+            clean_res = agent_reply[start:end+1]
+        else:
+            clean_res = agent_reply
+        
+        try:
+            res_json = json.loads(clean_res)
+            return api_response(True, {
+                "message": res_json.get("message", res_json.get("text", "Error parsing message")),
+                "amount": res_json.get("amount", 2847),
+                "tip": res_json.get("tip", "Be cautious with unknown messages."),
+                "scam_type": res_json.get("scenario_type", res_json.get("scam_type", "Unknown Scam")),
+                "risk_level": res_json.get("risk_level", "high"),
+                "ui_title": res_json.get("ui_title", "⚠ Suspicious Message"),
+                "ui_description": res_json.get("ui_description", "An unknown message was received."),
+                "recommended_actions": res_json.get("recommended_actions", []),
+                "await_user_response": res_json.get("await_user_response", True),
+                "next_step": res_json.get("next_step", ""),
+                "sender": "Infiltrator"
+            })
+        except Exception as parse_error:
+            print(f"[WARN] JSON parse failed: {parse_error}")
+            return api_response(True, {
+                "message": agent_reply[:200],
+                "amount": 2847,
+                "tip": "Be cautious with messages asking for personal information.",
+                "scam_type": "Unknown Scam",
+                "risk_level": "high",
+                "ui_title": "⚠ Suspicious Message",
+                "ui_description": "An unknown message was received.",
+                "recommended_actions": [],
+                "await_user_response": True,
+                "next_step": "",
+                "sender": "Infiltrator"
+            })
+
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Auto-spam failed: {str(e)}")
+
+
 from fastapi import WebSocket, WebSocketDisconnect
 
 class ConnectionManager:
@@ -297,15 +389,25 @@ async def websocket_war_room(websocket: WebSocket):
                 
                 # Append a hidden instruction so the LLM outputs JSON
                 prompt = (
-                    f"{user_msg}\n\n"
+                    f"User replied: {user_msg}\n\n"
                     "Please respond with BOTH the visible chat message AND some metadata about the scenario in JSON format. "
-                    "VARY the scam scenarios you generate widely (e.g. use phishing links, fake package deliveries, digital arrest threats, electricity disconnection). "
-                    "Make sure the response strictly follows this JSON schema, NO markdown, NO backticks:\n"
+                    "CONTINUE the conversation logically based on the user's reply. Act as the scammer reacting to the user. "
+                    "Return ONLY a valid JSON object matching this schema exactly, NO markdown, NO backticks:\n"
                     "{\n"
-                    '  "text": "The actual message text to send to the user",\n'
+                    '  "scenario_type": "phishing",\n'
+                    '  "message": "The actual message text to send",\n'
+                    '  "risk_level": "high",\n'
+                    '  "ui_title": "⚠ Social Media Phishing Attempt",\n'
+                    '  "ui_description": "A suspicious verification link was detected.",\n'
+                    '  "recommended_actions": [\n'
+                    '    {"label": "🔗 Open Link", "action_id": "pay", "type": "danger"},\n'
+                    '    {"label": "🛑 Ignore & Report", "action_id": "ignore", "type": "warning"},\n'
+                    '    {"label": "🔍 Inspect URL", "action_id": "analyze", "type": "cyber"}\n'
+                    '  ],\n'
+                    '  "await_user_response": true,\n'
+                    '  "next_step": "wait_for_user",\n'
                     '  "amount": 12500,\n'
-                    '  "tip": "A short, helpful tip explaining why this is a scam",\n'
-                    '  "scam_type": "A brief name for the scenario e.g. Package Scam"\n'
+                    '  "tip": "A short, helpful tip explaining why this is a scam"\n'
                     "}"
                 )
                 agent_reply = infiltrator.send_message(prompt)
@@ -321,10 +423,16 @@ async def websocket_war_room(websocket: WebSocket):
                     res_json = json.loads(clean_res)
                     await websocket.send_json({
                         "sender": "Infiltrator",
-                        "message": res_json.get("text", "Error parsing message"),
+                        "message": res_json.get("message", res_json.get("text", "Error parsing message")),
                         "amount": res_json.get("amount", 2847),
                         "tip": res_json.get("tip", "Be cautious with unknown messages."),
-                        "scam_type": res_json.get("scam_type", "Unknown Scam")
+                        "scam_type": res_json.get("scenario_type", res_json.get("scam_type", "Unknown Scam")),
+                        "risk_level": res_json.get("risk_level", "high"),
+                        "ui_title": res_json.get("ui_title", "⚠ Suspicious Message"),
+                        "ui_description": res_json.get("ui_description", "An unknown message was received."),
+                        "recommended_actions": res_json.get("recommended_actions", []),
+                        "await_user_response": res_json.get("await_user_response", True),
+                        "next_step": res_json.get("next_step", "")
                     })
                 except Exception:
                     # Fallback if json parsing fails
@@ -333,7 +441,13 @@ async def websocket_war_room(websocket: WebSocket):
                         "message": agent_reply,
                         "amount": 2847,
                         "tip": "Real utility companies never threaten immediate disconnection via SMS.",
-                        "scam_type": "Electricity Disconnection"
+                        "scam_type": "Electricity Disconnection",
+                        "risk_level": "high",
+                        "ui_title": "⚠ Suspicious Message",
+                        "ui_description": "An unknown message was received.",
+                        "recommended_actions": [],
+                        "await_user_response": True,
+                        "next_step": ""
                     })
             except Exception:
                 await websocket.send_json({"error": "Failed to process message."})

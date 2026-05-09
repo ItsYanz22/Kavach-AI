@@ -15,9 +15,9 @@ with st.sidebar:
     st.header("Simulation Control")
     
     # Check for API key
-    if not os.getenv("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY") == "your_api_key_here":
-        st.error("⚠️ GEMINI_API_KEY not found or invalid in .env file.")
-        st.info("Please add your Google Gemini API key to the .env file in this directory.")
+    if not os.getenv("GROQ_API_KEY") or os.getenv("GROQ_API_KEY") == "your_api_key_here":
+        st.error("⚠️ GROQ_API_KEY not found or invalid in .env file.")
+        st.info("Please add your Groq API key to the .env file in this directory. Get one free at https://console.groq.com")
         st.stop()
         
     modules = [

@@ -56,7 +56,7 @@ The entire ecosystem (Frontend, REST routes, and Agentic WebSockets) runs unifie
 ### Prerequisites
 - Python 3.11+
 - Node.js 18+
-- Your **Google Gemini API Key**
+- Your **Groq API Key**
 
 ### 1. Clone the repository
 ```bash
@@ -68,7 +68,7 @@ cd kavach-ai-cyber-safety
 Create a `.env` file in the backend directory. This is crucial for the AI Agents.
 ```bash
 # kavach_backend/.env
-GEMINI_API_KEY=your_actual_api_key_here
+GROQ_API_KEY=your_actual_api_key_here
 ```
 
 ### 3. Quick Start (Windows)
