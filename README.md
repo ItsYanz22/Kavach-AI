@@ -44,8 +44,89 @@ Kavach AI is not just an awareness tool; it's a dynamic training and defense pla
 
 - **Frontend**: React, Vite, Tailwind CSS / Custom CSS, WebSockets.
 - **Backend / Orchestrator**: FastAPI, Python, Uvicorn.
-- **AI Core**: Google Gemini model integrating dynamic prompts and live session data.
-- **Deployment**: Docker, Google Cloud Run ready.
+- **AI Core**: Google Gemini or Groq LLM with dynamic prompts and live session data.
+- **Deployment**: Docker, Google Cloud Run optimized.
+- **Database**: Supabase PostgreSQL or SQLite (dev).
+- **Logging**: Built-in threat analytics & user decision tracking.
+
+---
+
+## 📚 Documentation
+
+| Document | Purpose |
+|----------|---------|
+| **[QUICKSTART.md](./QUICKSTART.md)** | Get running in 10 minutes |
+| **[DEPLOYMENT.md](./DEPLOYMENT.md)** | Full Cloud Run deployment guide |
+| **[AGENT_ARCHITECTURE.md](./AGENT_ARCHITECTURE.md)** | Advanced agent design & optimization |
+| **[README.md](./README.md)** | This file - Project overview |
+
+---
+
+## 🚀 Quick Start
+
+### Option 1: Local Development (5 min)
+
+```bash
+# Backend
+cd backend && python -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+export GEMINI_API_KEY=your_key_here
+uvicorn main:app --reload
+
+# Frontend (new terminal)
+cd frontend && npm install && npm run dev
+```
+
+Visit: `http://localhost:5173`
+
+### Option 2: Docker (3 min)
+
+```bash
+docker build -t kavach-ai .
+docker run -p 8080:8080 -e GEMINI_API_KEY=your_key_here kavach-ai
+```
+
+Visit: `http://localhost:8080`
+
+### Option 3: Cloud Deployment (1 command)
+
+```bash
+gcloud run deploy kavach-ai \
+  --source . \
+  --region asia-south1 \
+  --allow-unauthenticated \
+  --set-env-vars GEMINI_API_KEY=your_key_here
+```
+
+**→ Full guide: [DEPLOYMENT.md](./DEPLOYMENT.md)**
+
+---
+
+## 📁 Project Structure
+
+```
+kavach-ai-cyber-safety/
+├── frontend/              # React/Vite UI
+│   ├── src/
+│   ├── package.json
+│   └── vite.config.ts
+├── backend/               # Python FastAPI
+│   ├── agents/           # AI agent implementations
+│   ├── routes/           # API route handlers
+│   ├── services/         # Business logic
+│   ├── logs/             # Threat history logs
+│   ├── analytics/        # User decision analytics
+│   ├── main.py           # Entry point
+│   ├── logger.py         # Logging utilities
+│   └── requirements.txt
+├── Dockerfile            # Multi-stage single container
+├── .dockerignore
+├── docker-compose.yml    # Optional multi-container setup
+├── QUICKSTART.md         # Getting started guide
+├── DEPLOYMENT.md         # Full deployment guide
+├── AGENT_ARCHITECTURE.md # Advanced agent design
+└── README.md             # This file
+```
 
 ---
 

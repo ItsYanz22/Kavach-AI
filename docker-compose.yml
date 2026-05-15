@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: backend
+    container_name: kavach-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=sqlite:///./kavach.db
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./backend:/app/backend
+      - ./kavach.db:/app/kavach.db
+    command: python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+    networks:
+      - kavach-network
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: frontend
+    container_name: kavach-frontend
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend/src:/app/frontend/src
+      - ./frontend/public:/app/frontend/public
+    command: npm run dev
+    depends_on:
+      - backend
+    networks:
+      - kavach-network
+    environment:
+      - VITE_API_URL=http://localhost:8000
+
+networks:
+  kavach-network:
+    driver: bridge
