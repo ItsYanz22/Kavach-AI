@@ -1,10 +1,11 @@
-import { useMemo, useState, useEffect, useRef } from "react";
+import React, { useMemo, useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { AlertTriangle, Clock, Phone, Video, MoreVertical, Smile, Paperclip, Mic, Send, ShieldAlert } from "lucide-react";
 import ChatBubble from "@/components/ChatBubble";
 import AlertOverlay from "@/components/AlertOverlay";
-import { getWsUrl } from "@/lib/api";
+import { getWsUrl, getBackendUrl } from "@/lib/api";
+import { useAuth } from "@/auth/AuthContext";
 
 const WarRoom = () => {
   const navigate = useNavigate();
@@ -16,11 +17,29 @@ const WarRoom = () => {
   const [paymentStage, setPaymentStage] = useState<"idle" | "processing" | "flash" | "debited">("idle");
   const [debitedAmount, setDebitedAmount] = useState(0);
   
+  // Analysis Panel State
+  const [showAnalysis, setShowAnalysis] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisData, setAnalysisData] = useState<{
+    highlights: any[],
+    reasons: string[],
+    message_parts: any[]
+  } | null>(null);
+
+  // Feedback State
+  const [feedback, setFeedback] = useState<{
+    title: string,
+    message: string,
+    type: "success" | "warning" | "danger"
+  } | null>(null);
+  
+  const { getToken, isAuthenticated, isLoading: authLoading } = useAuth();
   const [messages, setMessages] = useState<{ sender: "received" | "sent", message: string, time: string, senderName?: string }[]>([]);
   const [userInput, setUserInput] = useState("");
   const wsRef = useRef<WebSocket | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
-  
+  const [scenarioId, setScenarioId] = useState<string | null>(null);
+
   const [scamAmount, setScamAmount] = useState<number>(2847);
   const [scamTip, setScamTip] = useState<string>("Real utility companies never threaten immediate disconnection via SMS, and never use shortened links for payments.");
   const [scamType, setScamType] = useState<string>("Electricity Scam");
@@ -28,37 +47,43 @@ const WarRoom = () => {
   const [uiDescription, setUiDescription] = useState<string>("You received a suspicious message. Choose wisely — one wrong move and you could lose everything.");
   const [recommendedActions, setRecommendedActions] = useState<{label: string, action_id: string, type: string}[]>([]);
   const [awaitUserResponse, setAwaitUserResponse] = useState<boolean>(false);
-  const [autoSpamEnabled, setAutoSpamEnabled] = useState(true);
-  const autoSpamTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const dangerMode = countdown <= 10;
 
-  const getApiUrl = () => {
-    const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
-    const host = import.meta.env.VITE_API_URL || `${protocol}//${window.location.hostname}:8000`;
-    return host;
-  };
+  const jsonStr = (obj: any) => JSON.stringify(obj);
 
-  // Auto-spam polling has been disabled to enforce a strictly user-driven progression.
-  // The scenario is only generated once upon connection or when "Load Next Scenario" is clicked.
+  const getApiUrl = () => getBackendUrl();
 
-  const connectWs = () => {
+  useEffect(() => {
+    if (!authLoading && !isAuthenticated) {
+      navigate("/login");
+    }
+  }, [isAuthenticated, authLoading, navigate]);
+
+  const connectWs = React.useCallback(() => {
+    if (!isAuthenticated) return;
     if (wsRef.current) wsRef.current.close();
+    
     const wsUrl = getWsUrl();
     const ws = new WebSocket(wsUrl);
     
     ws.onopen = () => {
-      ws.send(jsonStr({ message: "Generate a randomized scam scenario as if you are texting me for the first time." }));
+      ws.send(jsonStr({ 
+        message: "start", 
+        token: getToken() 
+      }));
       setTypingVisible(true);
     };
 
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        if (data.message) {
+        if (data.scenario_id) setScenarioId(data.scenario_id);
+        
+        if (data?.message) {
           setMessages(prev => [...prev, {
             sender: "received",
-            senderName: data.sender || "Unknown",
+            senderName: data.sender || "Infiltrator",
             message: data.message,
             time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
           }]);
@@ -74,21 +99,46 @@ const WarRoom = () => {
           if (data.await_user_response !== undefined) setAwaitUserResponse(data.await_user_response);
         }
       } catch (e) {
-        console.error(e);
+        console.error("WS Message Error:", e);
       }
     };
     wsRef.current = ws;
-  };
-
-  const jsonStr = (obj: any) => JSON.stringify(obj);
+  }, [isAuthenticated, getToken]);
 
   useEffect(() => {
-    connectWs();
-
+    if (isAuthenticated) {
+      connectWs();
+    }
     return () => {
       if (wsRef.current) wsRef.current.close();
     };
-  }, []);
+  }, [isAuthenticated, connectWs]);
+
+  const submitChoice = async (choice: string) => {
+    if (!isAuthenticated) return;
+    
+    try {
+      const response = await fetch(`${getApiUrl()}/api/learning/simulate/submit`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${getToken()}`
+        },
+        body: JSON.stringify({
+          scenario_id: scenarioId || "war-room-session",
+          choice: choice,
+          reasoning: "User interaction in War Room"
+        })
+      });
+      
+      if (response.ok) {
+        const result = await response.json();
+        console.log("Progress updated:", result.data);
+      }
+    } catch (err) {
+      console.error("Failed to submit progress:", err);
+    }
+  };
 
   const handleSend = () => {
     if (!userInput.trim() || !wsRef.current) return;
@@ -107,7 +157,6 @@ const WarRoom = () => {
     if (e.key === "Enter") handleSend();
   };
 
-  // Auto-scroll
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [visibleMessages, typingVisible]);
@@ -123,7 +172,6 @@ const WarRoom = () => {
       setDebitedAmount(0);
       return;
     }
-
     let frame = 0;
     const totalFrames = 28;
     const id = setInterval(() => {
@@ -132,11 +180,11 @@ const WarRoom = () => {
       setDebitedAmount(value);
       if (frame >= totalFrames) clearInterval(id);
     }, 45);
-
     return () => clearInterval(id);
   }, [paymentStage, scamAmount]);
 
   const handlePayNow = () => {
+    submitChoice("pay");
     setPaymentStage("processing");
     setTimeout(() => setPaymentStage("flash"), 1000);
     setTimeout(() => setPaymentStage("debited"), 1180);
@@ -147,14 +195,65 @@ const WarRoom = () => {
     }, 2600);
   };
 
-  const handleAnalyze = () => {
-    const scamMsg = messages.find(m => m.sender === "received")?.message || "";
-    navigate("/analysis", { state: { text: scamMsg } });
+  const handleAnalyze = async () => {
+    submitChoice("analyze");
+    const scamMsg = [...messages].reverse().find(m => m.sender === "received")?.message || "";
+    if (!scamMsg) return;
+
+    setIsAnalyzing(true);
+    setShowAnalysis(true);
+    
+    try {
+      const response = await fetch(`${getApiUrl()}/api/learning/simulate/explain`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${getToken()}`
+        },
+        body: JSON.stringify({ message: scamMsg })
+      });
+      
+      if (response.ok) {
+        const envelope = await response.json();
+        setAnalysisData(envelope.data);
+      }
+    } catch (err) {
+      console.error("Analysis failed:", err);
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
   const handleIgnore = () => {
-    setAlertType("safe");
-    setShowAlert(true);
+    submitChoice("ignore");
+    wsRef.current?.send(jsonStr({ message: "[SYSTEM: User ignored the message]" }));
+    setFeedback({
+      title: "🙈 Message Ignored",
+      message: "Safe choice! Ignoring suspicious messages prevents scammers from confirming your number is active. However, persistent scammers may try again with higher pressure.",
+      type: "success"
+    });
+  };
+
+  const handleBlock = () => {
+    submitChoice("block");
+    setFeedback({
+      title: "🚫 Sender Blocked",
+      message: "EXCELLENT! Blocking is the most effective way to end a social engineering attack. You have successfully avoided this scam.",
+      type: "success"
+    });
+    setTimeout(() => {
+      setAlertType("safe");
+      setShowAlert(true);
+    }, 3000);
+  };
+
+  const handleReport = () => {
+    submitChoice("report");
+    setFeedback({
+      title: "⚠️ Scam Reported",
+      message: "Great job! Reporting helps protect the entire community. Authorities can track these patterns to shut down fraudulent networks.",
+      type: "success"
+    });
   };
 
   const handleChangeScenario = () => {
@@ -164,7 +263,12 @@ const WarRoom = () => {
     setCountdown(30);
     setPaymentStage("idle");
     setAwaitUserResponse(false);
-    
+    setRecommendedActions([]);
+    setUiTitle("⚡ What will you do?");
+    setUiDescription("You received a suspicious message. Choose wisely — one wrong move and you could lose everything.");
+    setAnalysisData(null);
+    setFeedback(null);
+    setShowAnalysis(false);
     connectWs();
   };
 
@@ -224,7 +328,6 @@ const WarRoom = () => {
             </div>
           </motion.div>
 
-          {/* Encryption notice */}
           <div className="flex justify-center my-3">
             <div className="wa-system-msg flex items-center gap-1.5 px-3 py-1 text-[11.5px]">
               <span>🔒</span>
@@ -232,12 +335,10 @@ const WarRoom = () => {
             </div>
           </div>
 
-          {/* Date chip */}
           <div className="flex justify-center my-2">
             <div className="wa-system-msg px-3 py-1 text-[12px] font-medium">TODAY</div>
           </div>
 
-          {/* Scam warning banner */}
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -249,7 +350,6 @@ const WarRoom = () => {
             </div>
           </motion.div>
 
-          {/* Messages */}
           <div className="space-y-1">
             {messages.slice(0, visibleMessages).map((msg, i) => (
               <ChatBubble
@@ -262,7 +362,6 @@ const WarRoom = () => {
               />
             ))}
 
-            {/* Typing indicator */}
             <AnimatePresence>
               {typingVisible && (
                 <motion.div
@@ -285,7 +384,6 @@ const WarRoom = () => {
           <div ref={chatEndRef} />
         </div>
 
-        {/* Countdown warning strip */}
         <motion.div
           animate={{
             backgroundColor: countdown <= 10
@@ -361,7 +459,6 @@ const WarRoom = () => {
           )}
         </AnimatePresence>
 
-        {/* WhatsApp Input Bar */}
         <div className="px-2 py-1.5 flex items-center gap-2 wa-header shrink-0">
           <div className="flex-1 flex items-center gap-2 rounded-full wa-input-bar px-3 py-2">
             <Smile className="h-5 w-5 text-muted-foreground shrink-0" />
@@ -390,104 +487,199 @@ const WarRoom = () => {
       </div>
 
       {/* Action Side */}
-      <div className="lg:w-[380px] p-6 flex flex-col justify-center gap-4 bg-card/30 backdrop-blur-sm shrink-0">
-        <motion.div
-          initial={{ opacity: 0, x: 20 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ delay: 0.5 }}
-        >
-          <h2 className="text-xl font-bold text-foreground mb-1">{uiTitle}</h2>
-          <p className="text-sm text-muted-foreground mb-6">
-            {uiDescription}
-          </p>
-          <p className="text-xs text-cyber mb-4">Experience scams safely before they happen in real life.</p>
-
-          <div className="space-y-3">
-            {recommendedActions.length > 0 ? (
-              recommendedActions.map((action, idx) => {
-                let btnColorClass = "bg-secondary/15 text-foreground border-border hover:bg-secondary/25";
-                let shadowColor = "hsla(0,0%,50%,0.3)";
-                
-                if (action.type === "danger") {
-                  btnColorClass = "bg-danger/15 text-danger border-danger/30 hover:bg-danger/25";
-                  shadowColor = "hsla(0,84%,60%,0.4)";
-                } else if (action.type === "warning") {
-                  btnColorClass = "bg-warning/15 text-warning border-warning/30 hover:bg-warning/25";
-                  shadowColor = "hsla(45,93%,58%,0.3)";
-                } else if (action.type === "cyber") {
-                  btnColorClass = "bg-cyber/15 text-cyber border-cyber/30 hover:bg-cyber/25";
-                  shadowColor = "hsla(199,89%,48%,0.3)";
-                }
-
-                return (
-                  <motion.button
-                    key={idx}
-                    whileHover={{ scale: 1.03, boxShadow: `0 0 30px ${shadowColor}` }}
-                    whileTap={{ scale: 0.97 }}
-                    onClick={() => {
-                      if (action.action_id === "pay") handlePayNow();
-                      else if (action.action_id === "ignore") handleIgnore();
-                      else if (action.action_id === "analyze") handleAnalyze();
-                    }}
-                    className={`w-full py-4 rounded-xl font-semibold border transition-all duration-300 flex items-center justify-center gap-2 ${btnColorClass}`}
-                  >
-                    {action.label} {action.action_id === "pay" && scamAmount > 0 ? `— ₹${scamAmount.toLocaleString("en-IN")}` : ""}
-                  </motion.button>
-                );
-              })
-            ) : (
-              <>
-                <motion.button
-                  whileHover={{ scale: 1.03, boxShadow: "0 0 30px hsla(0,84%,60%,0.4)" }}
-                  whileTap={{ scale: 0.97 }}
-                  onClick={handlePayNow}
-                  className="w-full py-4 rounded-xl bg-danger/15 text-danger font-semibold border border-danger/30 hover:bg-danger/25 transition-all duration-300 flex items-center justify-center gap-2"
-                >
-                  <span className="text-lg">💳</span> Pay Now — ₹{scamAmount.toLocaleString("en-IN")}
-                </motion.button>
-
-                <motion.button
-                  whileHover={{ scale: 1.03, boxShadow: "0 0 30px hsla(45,93%,58%,0.3)" }}
-                  whileTap={{ scale: 0.97 }}
-                  onClick={handleIgnore}
-                  className="w-full py-4 rounded-xl bg-warning/15 text-warning font-semibold border border-warning/30 hover:bg-warning/25 transition-all duration-300 flex items-center justify-center gap-2"
-                >
-                  <span className="text-lg">🚫</span> Ignore & Delete
-                </motion.button>
-
-                <motion.button
-                  whileHover={{ scale: 1.03, boxShadow: "0 0 30px hsla(199,89%,48%,0.3)" }}
-                  whileTap={{ scale: 0.97 }}
-                  onClick={handleAnalyze}
-                  className="w-full py-4 rounded-xl bg-cyber/15 text-cyber font-semibold border border-cyber/30 hover:bg-cyber/25 transition-all duration-300 flex items-center justify-center gap-2"
-                >
-                  <span className="text-lg">🔍</span> Analyze with Kavach AI
-                </motion.button>
-              </>
-            )}
-
-            <motion.button
-              whileHover={{ scale: 1.03 }}
-              whileTap={{ scale: 0.97 }}
-              onClick={handleChangeScenario}
-              className="w-full py-3 rounded-xl bg-secondary text-foreground font-semibold border border-border hover:bg-secondary/80 transition-all duration-300"
+      <div className={`lg:w-[380px] p-6 flex flex-col justify-center gap-4 bg-card/30 backdrop-blur-sm shrink-0 border-l border-border transition-all duration-500 ${showAnalysis ? "lg:w-[450px]" : "lg:w-[380px]"}`}>
+        <AnimatePresence mode="wait">
+          {showAnalysis ? (
+            <motion.div
+              key="analysis-panel"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 20 }}
+              className="h-full flex flex-col"
             >
-              Load Next Scenario
-            </motion.button>
-          </div>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-bold text-cyber flex items-center gap-2">
+                  <ShieldAlert className="h-5 w-5" /> Forensic Analysis
+                </h2>
+                <button 
+                  onClick={() => setShowAnalysis(false)}
+                  className="text-muted-foreground hover:text-foreground p-1"
+                >
+                  ✕
+                </button>
+              </div>
 
-          {/* Hints */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 2 }}
-            className="mt-6 p-3 rounded-lg border border-border bg-secondary/20"
-          >
-            <p className="text-[11px] text-muted-foreground leading-relaxed">
-              💡 <span className="text-foreground font-medium">Tip:</span> {scamTip}
-            </p>
-          </motion.div>
-        </motion.div>
+              {isAnalyzing ? (
+                <div className="flex-1 flex flex-col items-center justify-center gap-4">
+                  <div className="h-10 w-10 border-2 border-cyber border-t-transparent rounded-full animate-spin" />
+                  <p className="text-sm text-cyber animate-pulse">Deconstructing attack patterns...</p>
+                </div>
+              ) : analysisData ? (
+                <div className="flex-1 overflow-auto space-y-6 pr-2 custom-scrollbar">
+                  <div className="p-4 rounded-xl bg-cyber/10 border border-cyber/20">
+                    <p className="text-xs font-semibold text-cyber uppercase tracking-wider mb-2">Message Breakdown</p>
+                    <div className="text-sm leading-relaxed text-foreground/90">
+                      {analysisData.message_parts.map((part, i) => (
+                        <span 
+                          key={i} 
+                          className={part.highlight_index !== null ? "bg-danger/20 text-danger font-medium px-0.5 rounded" : ""}
+                        >
+                          {part.text}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Detected Red Flags</p>
+                    {analysisData.highlights.map((h, i) => (
+                      <div key={i} className="flex gap-3 p-3 rounded-lg bg-secondary/30 border border-border">
+                        <div className={`p-2 rounded bg-opacity-20 ${h.color === 'danger' ? 'bg-danger text-danger' : 'bg-warning text-warning'}`}>
+                          <AlertTriangle className="h-4 w-4" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-bold">{h.label}</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">{h.tooltip}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="p-4 rounded-xl bg-warning/5 border border-warning/20">
+                    <p className="text-xs font-semibold text-warning uppercase tracking-wider mb-2">Scammer Strategy</p>
+                    <ul className="list-disc list-inside space-y-1.5">
+                      {analysisData.reasons.map((r, i) => (
+                        <li key={i} className="text-xs text-muted-foreground">{r}</li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
+                  Failed to load analysis.
+                </div>
+              )}
+              
+              <button 
+                onClick={() => setShowAnalysis(false)}
+                className="mt-6 w-full py-3 rounded-xl bg-cyber/15 text-cyber font-bold border border-cyber/30 hover:bg-cyber/25 transition-all"
+              >
+                Back to Controls
+              </button>
+            </motion.div>
+          ) : (
+            <motion.div
+              key="controls-panel"
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+            >
+              <h2 className="text-xl font-bold text-foreground mb-1">{uiTitle}</h2>
+              <p className="text-sm text-muted-foreground mb-4">
+                {uiDescription}
+              </p>
+
+              {feedback && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className={`mb-4 p-4 rounded-xl border ${
+                    feedback.type === "success" ? "bg-safe/10 border-safe/30 text-safe" : 
+                    feedback.type === "warning" ? "bg-warning/10 border-warning/30 text-warning" : 
+                    "bg-danger/10 border-danger/30 text-danger"
+                  }`}
+                >
+                  <p className="text-sm font-bold flex items-center gap-2 mb-1">
+                    {feedback.title}
+                  </p>
+                  <p className="text-[12px] leading-relaxed opacity-90">{feedback.message}</p>
+                  <button 
+                    onClick={() => setFeedback(null)}
+                    className="mt-2 text-[10px] uppercase font-bold tracking-widest hover:underline"
+                  >
+                    Dismiss
+                  </button>
+                </motion.div>
+              )}
+
+              <div className="space-y-3">
+                {recommendedActions.length > 0 ? (
+                  recommendedActions.map((action, idx) => {
+                    let btnColorClass = "bg-secondary/15 text-foreground border-border hover:bg-secondary/25";
+                    let shadowColor = "hsla(0,0%,50%,0.3)";
+
+                    if (action.action_id === "pay") {
+                      btnColorClass = "bg-danger/20 text-danger border-danger/40 hover:bg-danger/30 h-16";
+                      shadowColor = "hsla(0,84%,60%,0.4)";
+                    } else if (action.action_id === "analyze") {
+                      btnColorClass = "bg-cyber/15 text-cyber border-cyber/30 hover:bg-cyber/25";
+                      shadowColor = "hsla(199,89%,48%,0.3)";
+                    } else if (action.action_id === "ignore") {
+                      btnColorClass = "bg-warning/15 text-warning border-warning/30 hover:bg-warning/25";
+                      shadowColor = "hsla(45,93%,58%,0.3)";
+                    } else if (action.action_id === "block") {
+                      btnColorClass = "bg-danger/10 text-danger border-danger/20 hover:bg-danger/20";
+                      shadowColor = "hsla(0,84%,60%,0.2)";
+                    } else if (action.action_id === "report") {
+                      btnColorClass = "bg-secondary/40 text-muted-foreground border-border hover:text-foreground";
+                    }
+
+                    return (
+                      <motion.button
+                        key={idx}
+                        whileHover={{ scale: 1.02, boxShadow: `0 0 20px ${shadowColor}` }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={() => {
+                          if (action.action_id === "pay") handlePayNow();
+                          else if (action.action_id === "ignore") handleIgnore();
+                          else if (action.action_id === "analyze") handleAnalyze();
+                          else if (action.action_id === "block") handleBlock();
+                          else if (action.action_id === "report") handleReport();
+                        }}
+                        className={`w-full py-3.5 rounded-xl font-bold border transition-all duration-300 flex items-center justify-center ${btnColorClass}`}
+                      >
+                        <div className="flex flex-col items-center">
+                          <span className="text-sm">{action.label}</span>
+                          {action.action_id === "pay" && scamAmount > 0 && (
+                            <span className="text-[10px] opacity-70">Loss: ₹{scamAmount.toLocaleString("en-IN")}</span>
+                          )}
+                        </div>
+                      </motion.button>
+                    );
+                  })
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground italic text-sm">
+                    No actions available...
+                  </div>
+                )}
+
+                <div className="pt-4 border-t border-border/50 mt-4">
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={handleChangeScenario}
+                    className="w-full py-3 rounded-xl bg-secondary/50 text-muted-foreground text-xs font-bold border border-border hover:bg-secondary hover:text-foreground transition-all duration-300"
+                  >
+                    Load Next Simulation
+                  </motion.button>
+                </div>
+              </div>
+
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 1 }}
+                className="mt-6 p-4 rounded-xl border border-border bg-secondary/10 relative overflow-hidden"
+              >
+                <div className="absolute top-0 left-0 w-1 h-full bg-cyber" />
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  <span className="text-cyber font-bold uppercase tracking-wider block mb-1">Defense Tip</span> 
+                  {scamTip}
+                </p>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       <AlertOverlay type={alertType || "scammed"} show={showAlert} onClose={() => setShowAlert(false)} />

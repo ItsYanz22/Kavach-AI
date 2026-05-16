@@ -1,8 +1,8 @@
+import React, { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { AlertTriangle, Link, Clock, Building, Info, ShieldAlert, Loader2 } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { useEffect, useState } from "react";
 import { explainMessage, type ExplainResult } from "@/lib/api";
 
 const IconMap: Record<string, React.ElementType> = {

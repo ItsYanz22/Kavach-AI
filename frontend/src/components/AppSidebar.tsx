@@ -1,6 +1,7 @@
-import { Home, Swords, Search, LayoutDashboard, Shield } from "lucide-react";
+import { Home, Swords, Search, LayoutDashboard, Shield, BookOpen, LogOut, LogIn } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
+import { useAuth } from "@/auth/AuthContext";
 import {
   Sidebar,
   SidebarContent,
@@ -12,17 +13,20 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 
-const items = [
-  { title: "Home", url: "/", icon: Home },
-  { title: "War Room", url: "/war-room", icon: Swords },
-  { title: "Scam Detector", url: "/scam-detector", icon: Search },
-  { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
-];
-
 export function AppSidebar() {
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
   const location = useLocation();
+  const { isAuthenticated, logout } = useAuth();
+  const navigate = useNavigate();
+
+  const items = [
+    { title: "Home", url: "/", icon: Home },
+    { title: "War Room", url: "/war-room", icon: Swords },
+    { title: "Scam Detector", url: "/scam-detector", icon: Search },
+    { title: "Learning", url: "/learning", icon: BookOpen },
+    { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
+  ];
 
   return (
     <Sidebar collapsible="icon" className="border-r border-border">
@@ -57,6 +61,29 @@ export function AppSidebar() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+
+        <div className="mt-auto pb-4 px-2">
+          {isAuthenticated ? (
+            <SidebarMenuButton 
+              onClick={() => {
+                logout();
+                navigate("/");
+              }}
+              className="text-muted-foreground hover:text-danger transition-colors w-full"
+            >
+              <LogOut className="mr-3 h-4 w-4 shrink-0" />
+              {!collapsed && <span>Logout</span>}
+            </SidebarMenuButton>
+          ) : (
+            <SidebarMenuButton 
+              onClick={() => navigate("/login")}
+              className="text-muted-foreground hover:text-safe transition-colors w-full"
+            >
+              <LogIn className="mr-3 h-4 w-4 shrink-0" />
+              {!collapsed && <span>Login / Sign up</span>}
+            </SidebarMenuButton>
+          )}
+        </div>
       </SidebarContent>
     </Sidebar>
   );

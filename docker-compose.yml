@@ -12,6 +12,9 @@ services:
     environment:
       - DATABASE_URL=sqlite:///./kavach.db
       - PYTHONUNBUFFERED=1
+      - ENVIRONMENT=docker-dev
+      # CORS: Allow frontend running on any local port
+      - CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080,http://127.0.0.1:8080
     volumes:
       - ./backend:/app/backend
       - ./kavach.db:/app/kavach.db
@@ -36,7 +39,11 @@ services:
     networks:
       - kavach-network
     environment:
-      - VITE_API_URL=http://localhost:8000
+      # Inside Docker, the backend service is accessible at: http://backend:8000
+      # This is the Docker DNS name for the backend container
+      - VITE_BACKEND_URL=http://backend:8000
+      # Tell Vite to listen on all interfaces so it's accessible from host machine
+      - VITE_HOST=0.0.0.0
 
 networks:
   kavach-network:

@@ -1,472 +1,525 @@
-from pydantic import json_schema
-import os
-import json
-import traceback
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-# Trigger Uvicorn Hot-Reload: true
+"""
+KAVACH AI 2.0 - PRODUCTION-GRADE CYBERSECURITY LEARNING PLATFORM
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-from agents.agent_manager import AgentManager
-from schemas import MessageInput
-from database import log_detection, get_history
+Next-generation backend for interactive scam detection & cyber awareness.
+
+FEATURES:
+✅ User authentication with JWT
+✅ Learning platform with progress tracking
+✅ Multi-agent orchestration (Infiltrator, Forensic, Mentor)
+✅ Real-time WebSocket War Room simulations
+✅ Fallback scenario engine (when LLM unavailable)
+✅ Structured production logging
+✅ Comprehensive error recovery
+✅ Cloud Run optimized
+✅ Anti-spam session management
+✅ Achievement/XP system
+✅ Debug endpoints for troubleshooting
+
+ARCHITECTURE:
+- Main app with lifecycle management
+- Health checks & diagnostics
+- Auth routers (signup, login, refresh)
+- Learning routers (modules, progress, simulations)
+- Debug/diagnostic routers
+- WebSocket handler
+- Static SPA serving
+- Error middleware
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+
+import os
+import sys
+import logging
+from pathlib import Path
+from contextlib import asynccontextmanager
+import asyncio
+import json
+import uuid
+from datetime import datetime
+from backend.auth.auth import TokenManager
+
+# ────────────────────────────────────────────────────────────────────────────
+# STEP 0: Setup Logging (First Priority)
+# ────────────────────────────────────────────────────────────────────────────
+
+from backend.logs_structured import setup_logging, get_logger, log_startup
+from backend.config import EnvConfig
+
+# Initialize logging
+setup_logging(level=EnvConfig.LOG_LEVEL)
+logger = get_logger(__name__)
+
+logger.info("")
+logger.info("=" * 80)
+logger.info("🚀 KAVACH AI 2.0 - STARTUP SEQUENCE")
+logger.info("=" * 80)
+logger.info("")
+
+# ────────────────────────────────────────────────────────────────────────────
+# STEP 1: Load and Validate Configuration
+# ────────────────────────────────────────────────────────────────────────────
+
+try:
+    logger.info("STEP 1: Loading configuration...")
+    # EnvConfig already loaded on import
+    is_valid, warnings = EnvConfig.validate_startup()
+    
+    for warning in warnings:
+        logger.warning(f"  ⚠️  {warning}")
+    
+    log_startup("config", "ok")
+except Exception as e:
+    logger.error(f"❌ Configuration failed: {e}", exc_info=True)
+    sys.exit(1)
+
+# ────────────────────────────────────────────────────────────────────────────
+# STEP 2: Initialize FastAPI
+# ────────────────────────────────────────────────────────────────────────────
+
+try:
+    logger.info("STEP 2: Initializing FastAPI...")
+    from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+    from fastapi.middleware.cors import CORSMiddleware
+    from fastapi.staticfiles import StaticFiles
+    from fastapi.responses import FileResponse
+    
+    log_startup("fastapi", "ok")
+except Exception as e:
+    logger.error(f"❌ FastAPI initialization failed: {e}", exc_info=True)
+    sys.exit(1)
+
+# ────────────────────────────────────────────────────────────────────────────
+# STEP 3: Initialize Database
+# ────────────────────────────────────────────────────────────────────────────
+
+try:
+    logger.info("STEP 3: Initializing database...")
+    from backend.database_models import init_db
+    init_db()
+    log_startup("database", "ok")
+except Exception as e:
+    logger.error(f"❌ Database initialization failed: {e}", exc_info=True)
+    sys.exit(1)
+
+# ────────────────────────────────────────────────────────────────────────────
+# STEP 4: Import Backend Modules
+# ────────────────────────────────────────────────────────────────────────────
+
+try:
+    logger.info("STEP 4: Loading backend modules...")
+    
+    from backend.schemas import ApiResponse
+    logger.info("  ✓ schemas")
+    
+    from backend.services import agent_service
+    logger.info("  ✓ services")
+    
+    from backend.websocket_manager import war_room_manager
+    logger.info("  ✓ websocket_manager")
+    
+    from backend.fallback_scenarios import fallback_engine
+    logger.info("  ✓ fallback_scenarios")
+    
+    log_startup("modules", "ok")
+except Exception as e:
+    logger.error(f"❌ Module import failed: {e}", exc_info=True)
+    sys.exit(1)
+
+# ────────────────────────────────────────────────────────────────────────────
+# STEP 5: Import Routers
+# ────────────────────────────────────────────────────────────────────────────
+
+try:
+    logger.info("STEP 5: Loading API routers...")
+    
+    from backend.routers.detection import router as detection_router
+    logger.info("  ✓ detection router")
+    
+    from backend.routers.auth import router as auth_router
+    logger.info("  ✓ auth router")
+    
+    from backend.routers.learning import router as learning_router
+    logger.info("  ✓ learning router")
+    
+    from backend.routers.debug import router as debug_router
+    logger.info("  ✓ debug router")
+    
+    log_startup("routers", "ok")
+except Exception as e:
+    logger.error(f"❌ Router import failed: {e}", exc_info=True)
+    sys.exit(1)
+
+# ────────────────────────────────────────────────────────────────────────────
+# LIFECYCLE MANAGEMENT
+# ────────────────────────────────────────────────────────────────────────────
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """FastAPI lifecycle: startup → yield → shutdown"""
+    
+    # STARTUP
+    logger.info("\n" + "=" * 80)
+    logger.info("📌 STARTUP HOOKS")
+    logger.info("=" * 80)
+    
+    try:
+        logger.info("Starting WebSocket cleanup task...")
+        war_room_manager.start_cleanup()
+        logger.info("✅ WebSocket manager ready")
+        
+        logger.info("✅ All startup hooks completed")
+        
+        logger.info("=" * 80)
+        logger.info("✅ KAVACH AI 2.0 IS READY TO SERVE")
+        logger.info("=" * 80 + "\n")
+    
+    except Exception as e:
+        logger.error(f"❌ Startup hook failed: {e}", exc_info=True)
+        raise
+    
+    yield  # App runs here
+    
+    # SHUTDOWN
+    logger.info("\n" + "=" * 80)
+    logger.info("🛑 SHUTDOWN HOOKS")
+    logger.info("=" * 80)
+    
+    try:
+        logger.info("Stopping WebSocket cleanup task...")
+        await war_room_manager.stop_cleanup()
+        logger.info("✅ Cleanup complete")
+    except Exception as e:
+        logger.error(f"⚠️  Shutdown error: {e}")
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# CREATE FASTAPI APP
+# ────────────────────────────────────────────────────────────────────────────
 
 app = FastAPI(
-    title="Kavach AI – Cyber Safety Simulator",
-    description="Backend API for the Kavach AI Cyber-Safety Ecosystem",
-    version="1.0.0",
+    title="Kavach AI 2.0 - Cyber Safety Learning Platform",
+    description="Production-grade multi-agent backend for interactive scam education",
+    version="2.0.0",
+    docs_url="/api/docs",
+    openapi_url="/api/openapi.json",
+    lifespan=lifespan,
 )
 
-# ──────────────────────────────────────────────
-# CORS – allow frontend requests from any origin
-# ──────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────
+# MIDDLEWARE
+# ────────────────────────────────────────────────────────────────────────────
+
+# CORS Configuration
+# ────────────────────────────────────────────────────────────────────────────
+# PRODUCTION DEPLOYMENT:
+# - Cloud Run: Frontend and backend served from same origin → minimal CORS needed
+# - Docker local: Set CORS_ORIGINS env var with comma-separated list
+# - Direct network: Use regex for local IP ranges
+#
+# DEVELOPMENT:
+# - Frontend runs on :5173 or :8080 via Vite dev server
+# - Backend runs on :8000
+# - Need CORS to allow cross-port requests
+#
+# SECURITY:
+# - Never use allow_origins=["*"] with credentials=True (security risk)
+# - In production, be explicit about allowed origins
+# - Cloud Run: Use environment variable to set domain dynamically
+#
+# CORS Configuration
+CORS_ORIGINS = [
+    "http://localhost:8080",
+    "http://127.0.0.1:8080",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+
+# Support production environment origins via env var
+cors_env = os.environ.get("CORS_ORIGINS", "")
+if cors_env:
+    CORS_ORIGINS.extend([o.strip() for o in cors_env.split(",")])
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
+    # Support local network IPs via regex (essential for multiple dev environments)
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1|192\.168\..*|10\..*|172\.1[6-9]\..*|172\.2[0-9]\..*|172\.3[0-1]\..*):[0-9]+",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    max_age=600,
 )
 
-# ──────────────────────────────────────────────
-# Initialize AI Agents
-# ──────────────────────────────────────────────
-infiltrator = AgentManager("Infiltrator")
-forensic = AgentManager("Forensic")
-mentor = AgentManager("Mentor")
+logger.info(f"✅ CORS configured with {len(CORS_ORIGINS)} origins")
+if CORS_ORIGINS:
+    for origin in CORS_ORIGINS:
+        logger.info(f"   - {origin}")
 
+# ────────────────────────────────────────────────────────────────────────────
+# ROUTERS
+# ────────────────────────────────────────────────────────────────────────────
 
-# ──────────────────────────────────────────────
-# Helper – standardised API envelope
-# ──────────────────────────────────────────────
-def api_response(success: bool, data: dict, message: str = ""):
-    return {"success": success, "data": data, "message": message}
+app.include_router(auth_router)
+app.include_router(learning_router)
+app.include_router(detection_router)
+app.include_router(debug_router)
 
-
-# ──────────────────────────────────────────────
-# Routes
-# ──────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────
+# HEALTH CHECK
+# ────────────────────────────────────────────────────────────────────────────
 
 
 @app.get("/health")
-def health():
-    return api_response(True, {"status": "ok"}, "Server healthy")
+async def health_check():
+    """Liveness probe for Cloud Run."""
+    return {
+        "status": "healthy",
+        "environment": EnvConfig.ENVIRONMENT,
+        "ai_available": bool(EnvConfig.GROQ_API_KEY),
+    }
 
 
-# 🔍 DETECT – Forensic Agent classifies a message
-@app.post("/detect")
-def detect(data: MessageInput):
-    if not data.text.strip():
-        raise HTTPException(status_code=400, detail="Text cannot be empty")
-
+@app.get("/ready")
+async def readiness_check():
+    """Readiness probe for Cloud Run."""
     try:
-        prompt = (
-            "Classify the following message as SCAM or SAFE.\n"
-            "Return ONLY a valid JSON object with the exact schema below, NO markdown formatting, NO backticks:\n"
-            "{\n"
-            "  \"classification\": \"Scam\" or \"Safe\",\n"
-            "  \"confidence\": 0.95,\n"
-            "  \"reason\": \"summary\"\n"
-            "}\n"
-            f"Message:\n{data.text}"
-        )
-        result = forensic.send_message(prompt)
-
-        if "System Alert: LLM Rate Limit Reached" in result:
-            raise HTTPException(status_code=429, detail="LLM Rate Limit Reached. Please restart the backend server so it reads the new .env key.")
-
-        import json
-        start = result.find('{')
-        end = result.rfind('}')
-        if start != -1 and end != -1:
-            clean_res = result[start:end+1]
-        else:
-            clean_res = result
+        # Check database
+        from backend.database_models import SessionLocal
+        db = SessionLocal()
+        db.execute("SELECT 1")
+        db.close()
         
-        try:
-            res_json = json.loads(clean_res)
-            classification = res_json.get("classification", "Suspicious")
-            confidence = float(res_json.get("confidence", 0.5))
-            reason = res_json.get("reason", "Analyzed by AI")
-        except json.JSONDecodeError:
-            classification, confidence, reason = "Suspicious", 0.5, "Format error or fallback logic"
-
-        log_detection(data.text, classification, confidence)
+        # Check agents
+        infiltrator_ready = agent_service.infiltrator.client is not None
+        forensic_ready = agent_service.forensic.client is not None
+        mentor_ready = agent_service.mentor.client is not None
         
-        # NOTE: map back to uppercase so we don't break old frontend if it relied on it
-        upper_class = "SCAM" if "scam" in classification.lower() else "SAFE"
-
-        return api_response(True, {
-            "classification": upper_class,
-            "confidence": confidence,
-            "reason": reason,
-        })
-
-    except Exception as e:
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Detection failed: {str(e)}")
-
-
-@app.post("/explain")
-def explain(data: MessageInput):
-    if not data.text.strip():
-        raise HTTPException(status_code=400, detail="Text cannot be empty")
-
-    try:
-        # Request the structured JSON response for the frontend UI
-        prompt = (
-            f"Analyze the following scam message in deep detail.\n"
-            f"Message: {data.text}\n\n"
-            f"Return ONLY a valid JSON object matching this schema exactly (no markdown formatting, no backticks):\n"
-            "{\n"
-            '  "message_parts": [\n'
-            '    { "text": "plain text part ", "highlight_index": null },\n'
-            '    { "text": "highlighted part", "highlight_index": 0 }\n'
-            "  ],\n"
-            '  "highlights": [\n'
-            "    {\n"
-            '      "label": "Tactic Name (e.g. Suspicious Link)",\n'
-            '      "color": "danger" or "warning" or "cyber",\n'
-            '      "icon": "Link" or "Clock" or "Building" or "AlertTriangle",\n'
-            '      "tooltip": "Why this is suspicious",\n'
-            '      "text": "The exact text being highlighted"\n'
-            "    }\n"
-            "  ],\n"
-            '  "reasons": [\n'
-            '    "Detailed reason 1", "Detailed reason 2"\n'
-            "  ]\n"
-            "}\n"
-            "CRITICAL: The concatenated 'text' fields in 'message_parts' MUST recreate the original message EXACTLY. highlight_index must perfectly correspond to the highlights array indices."
-        )
-        result = forensic.send_message(prompt)
-        
-        import json
-        start = result.find('{')
-        end = result.rfind('}')
-        if start != -1 and end != -1:
-            clean_res = result[start:end+1]
-        else:
-            clean_res = result
-        
-        return api_response(True, json.loads(clean_res))
-
-    except Exception as e:
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Explain failed: {str(e)}")
-
-
-# 🛡️ ACTION – Mentor Agent recommends steps
-@app.post("/action")
-def action(data: MessageInput):
-    if not data.text.strip():
-        raise HTTPException(status_code=400, detail="Text cannot be empty")
-
-    try:
-        prompt = (
-            f"What should the user do about this message? Provide a list of recommended actions.\n"
-            f"Message: {data.text}\n\n"
-            f"Return ONLY a valid JSON object matching this schema exactly (no markdown formatting, no backticks):\n"
-            "{\n"
-            '  "actions": [\n'
-            "    {\n"
-            '      "icon": "Ban" or "Phone" or "Shield" or "CheckCircle",\n'
-            '      "text": "Short actionable text (e.g. Do not click links)",\n'
-            '      "detail": "Detailed explanation of why or how to do it"\n'
-            "    }\n"
-            "  ]\n"
-            "}\n"
-        )
-        result = mentor.send_message(prompt)
-        
-        import json
-        clean_res = result.strip()
-        if clean_res.startswith("```json"): clean_res = clean_res[7:]
-        if clean_res.startswith("```"): clean_res = clean_res[3:]
-        if clean_res.endswith("```"): clean_res = clean_res[:-3]
-        
-        try:
-            res_json = json.loads(clean_res.strip())
-        except json.JSONDecodeError:
-            # Fallback
-            res_json = {
-                "actions": [
-                    { "icon": "Ban", "text": "Do not click unknown links", "detail": "Never open URLs from unknown senders" },
-                    { "icon": "Phone", "text": "Verify with official source", "detail": "Call the company directly using their official number" }
-                ]
-            }
-
-        return api_response(True, res_json)
-
-    except Exception as e:
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Action failed: {str(e)}")
-
-
-# 🎭 SIMULATE – Infiltrator Agent generates a scam message
-@app.post("/simulate")
-def simulate():
-    try:
-        result = infiltrator.send_message(
-            "Generate a realistic Indian scam message such as a UPI fraud, "
-            "OTP phishing, digital arrest, or fake lottery. Make it convincing "
-            "but use only placeholder links like safesim.link/example."
-        )
-        return api_response(True, {"message": result})
-
-    except Exception as e:
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Simulation failed: {str(e)}")
-
-
-# 📜 HISTORY – past detections
-@app.get("/history")
-def history():
-    try:
-        rows = get_history()
-        entries = [
-            {
-                "id": r[0],
-                "message": r[1],
-                "classification": r[2],
-                "confidence": r[3],
-                "timestamp": r[4],
-            }
-            for r in rows
-        ]
-        return api_response(True, {"history": entries})
-
-    except Exception as e:
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"History failed: {str(e)}")
-
-
-# ──────────────────────────────────────────────
-# 🏥 HEALTH SCORE – Mentor Agent evaluates session
-# ──────────────────────────────────────────────
-@app.get("/health-score")
-def health_score():
-    try:
-        prompt = (
-            "Evaluate the current session's overall security health. "
-            "Return ONLY a valid JSON object with the exact schema below, NO markdown formatting, NO backticks:\n"
-            "{\n"
-            "  \"score\": 85,\n"
-            "  \"alerts\": [\n"
-            "    {\"time\": \"Just now\", \"text\": \"Simulation finished\", \"type\": \"safe\"}\n"
-            "  ]\n"
-            "}\n"
-            "Make sure 'type' is one of 'safe', 'warning', or 'danger'."
-        )
-        result = mentor.send_message(prompt)
-        import json
-        clean_res = result.strip()
-        if clean_res.startswith("```json"): clean_res = clean_res[7:]
-        if clean_res.startswith("```"): clean_res = clean_res[3:]
-        if clean_res.endswith("```"): clean_res = clean_res[:-3]
-        
-        return api_response(True, json.loads(clean_res.strip()))
-    except Exception as e:
-        traceback.print_exc()
-        return api_response(True, {"score": 78, "alerts": [{"time": "System", "text": "Fallback score (Mentor error)", "type": "warning"}]})
-
-
-# ──────────────────────────────────────────────
-# 🎰 AUTO-SPAM – Generate random spam for WarRoom
-# ──────────────────────────────────────────────
-@app.get("/auto-spam")
-def auto_spam():
-    """Generate a randomized spam/scam message for the War Room continuous stream."""
-    try:
-        scam_scenarios = [
-            "Generate a realistic UPI phishing scam message.",
-            "Generate a fake OTP/banking credential theft message.",
-            "Generate a digital arrest/government threat message.",
-            "Generate a fake parcel/package delivery scam message.",
-            "Generate an electricity/utility bill scam message.",
-            "Generate a fake lottery/prize winning message.",
-            "Generate an insurance claim fraud message.",
-            "Generate a cryptocurrency investment scam message.",
-        ]
-        
-        import random
-        scenario = random.choice(scam_scenarios)
-        
-        prompt = (
-            f"{scenario}\n"
-            "Make it convincing and use only placeholder links like safesim.link/fraud. "
-            "Include a realistic amount and category. "
-            "Return ONLY a valid JSON object with NO markdown, NO backticks matching this schema:\n"
-            "{\n"
-            '  "scenario_type": "phishing",\n'
-            '  "message": "The actual scam message text",\n'
-            '  "risk_level": "high",\n'
-            '  "ui_title": "⚠ Social Media Phishing Attempt",\n'
-            '  "ui_description": "A suspicious verification link was detected.",\n'
-            '  "recommended_actions": [\n'
-            '    {"label": "🔗 Open Link", "action_id": "pay", "type": "danger"},\n'
-            '    {"label": "🛑 Ignore & Report", "action_id": "ignore", "type": "warning"},\n'
-            '    {"label": "🔍 Inspect URL", "action_id": "analyze", "type": "cyber"}\n'
-            '  ],\n'
-            '  "await_user_response": true,\n'
-            '  "next_step": "wait_for_user",\n'
-            '  "amount": 5000,\n'
-            '  "tip": "A short tip explaining why this is a scam"\n'
-            "}"
+        ready = (
+            EnvConfig.GROQ_API_KEY is not None or
+            fallback_engine is not None
         )
         
-        agent_reply = infiltrator.send_message(prompt)
-        
-        # Extract JSON from response
-        start = agent_reply.find('{')
-        end = agent_reply.rfind('}')
-        if start != -1 and end != -1:
-            clean_res = agent_reply[start:end+1]
-        else:
-            clean_res = agent_reply
-        
-        try:
-            res_json = json.loads(clean_res)
-            return api_response(True, {
-                "message": res_json.get("message", res_json.get("text", "Error parsing message")),
-                "amount": res_json.get("amount", 2847),
-                "tip": res_json.get("tip", "Be cautious with unknown messages."),
-                "scam_type": res_json.get("scenario_type", res_json.get("scam_type", "Unknown Scam")),
-                "risk_level": res_json.get("risk_level", "high"),
-                "ui_title": res_json.get("ui_title", "⚠ Suspicious Message"),
-                "ui_description": res_json.get("ui_description", "An unknown message was received."),
-                "recommended_actions": res_json.get("recommended_actions", []),
-                "await_user_response": res_json.get("await_user_response", True),
-                "next_step": res_json.get("next_step", ""),
-                "sender": "Infiltrator"
-            })
-        except Exception as parse_error:
-            print(f"[WARN] JSON parse failed: {parse_error}")
-            return api_response(True, {
-                "message": agent_reply[:200],
-                "amount": 2847,
-                "tip": "Be cautious with messages asking for personal information.",
-                "scam_type": "Unknown Scam",
-                "risk_level": "high",
-                "ui_title": "⚠ Suspicious Message",
-                "ui_description": "An unknown message was received.",
-                "recommended_actions": [],
-                "await_user_response": True,
-                "next_step": "",
-                "sender": "Infiltrator"
-            })
-
+        return {
+            "ready": ready,
+            "database": "ok",
+            "agents": {
+                "infiltrator": "ready" if infiltrator_ready else "fallback",
+                "forensic": "ready" if forensic_ready else "fallback",
+                "mentor": "ready" if mentor_ready else "fallback",
+            },
+        }
     except Exception as e:
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Auto-spam failed: {str(e)}")
+        logger.error(f"Readiness check failed: {e}")
+        raise HTTPException(status_code=503, detail="Service not ready")
 
 
-from fastapi import WebSocket, WebSocketDisconnect
-
-class ConnectionManager:
-    def __init__(self):
-        self.active_connections: list[WebSocket] = []
-
-    async def connect(self, websocket: WebSocket):
-        await websocket.accept()
-        self.active_connections.append(websocket)
-
-    def disconnect(self, websocket: WebSocket):
-        if websocket in self.active_connections:
-            self.active_connections.remove(websocket)
-
-manager = ConnectionManager()
+# ────────────────────────────────────────────────────────────────────────────
+# WEBSOCKET WAR ROOM
+# ────────────────────────────────────────────────────────────────────────────
 
 @app.websocket("/ws/war-room")
 async def websocket_war_room(websocket: WebSocket):
-    await manager.connect(websocket)
+    """
+    WebSocket handler for War Room interactive scam simulations.
+    
+    Features:
+    - Real-time scenario generation
+    - Anti-spam session control
+    - Interactive Infiltrator agent
+    - Error recovery with fallback
+    - Automatic cleanup
+    """
+    
+    session_id = str(uuid.uuid4())
+    logger.info(f"[WS] New connection: {session_id}")
+    
     try:
-        import json
+        # Connect session
+        session = await war_room_manager.connect(session_id, websocket)
+        
+        # Welcome message
+        await websocket.send_json({
+            "event": "connected",
+            "session_id": session_id,
+            "message": "Welcome to War Room! Type 'start' to begin a scam scenario.",
+        })
+        
+        logger.info(f"[WS] Session initialized: {session_id}")
+        
+        # Main message loop
         while True:
-            data = await websocket.receive_text()
             try:
-                payload = json.loads(data)
-                user_msg = payload.get("message", "")
+                # Receive user message
+                user_input = await websocket.receive_text()
                 
-                # Append a hidden instruction so the LLM outputs JSON
-                prompt = (
-                    f"User replied: {user_msg}\n\n"
-                    "Please respond with BOTH the visible chat message AND some metadata about the scenario in JSON format. "
-                    "CONTINUE the conversation logically based on the user's reply. Act as the scammer reacting to the user. "
-                    "Return ONLY a valid JSON object matching this schema exactly, NO markdown, NO backticks:\n"
-                    "{\n"
-                    '  "scenario_type": "phishing",\n'
-                    '  "message": "The actual message text to send",\n'
-                    '  "risk_level": "high",\n'
-                    '  "ui_title": "⚠ Social Media Phishing Attempt",\n'
-                    '  "ui_description": "A suspicious verification link was detected.",\n'
-                    '  "recommended_actions": [\n'
-                    '    {"label": "🔗 Open Link", "action_id": "pay", "type": "danger"},\n'
-                    '    {"label": "🛑 Ignore & Report", "action_id": "ignore", "type": "warning"},\n'
-                    '    {"label": "🔍 Inspect URL", "action_id": "analyze", "type": "cyber"}\n'
-                    '  ],\n'
-                    '  "await_user_response": true,\n'
-                    '  "next_step": "wait_for_user",\n'
-                    '  "amount": 12500,\n'
-                    '  "tip": "A short, helpful tip explaining why this is a scam"\n'
-                    "}"
-                )
-                agent_reply = infiltrator.send_message(prompt)
-                
-                start = agent_reply.find('{')
-                end = agent_reply.rfind('}')
-                if start != -1 and end != -1:
-                    clean_res = agent_reply[start:end+1]
-                else:
-                    clean_res = agent_reply
-                
+                # Parse input as JSON (WarRoom sends JSON objects)
                 try:
-                    res_json = json.loads(clean_res)
+                    data = json.loads(user_input)
+                    user_message = data.get("message", "").strip().lower()
+                    token = data.get("token")
+                except json.JSONDecodeError:
+                    user_message = user_input.strip().lower()
+                    token = None
+                
+                logger.info(f"[WS] {session_id} → {user_message[:50]}")
+                
+                # START command
+                if user_message == "start":
+                    # Validate token if provided
+                    if token:
+                        try:
+                            payload = TokenManager.verify_token(token)
+                            session.user_id = payload.get("sub")
+                        except Exception as e:
+                            logger.warning(f"[WS] {session_id} provided invalid token: {e}")
+                    
+                    can_generate, reason = session.can_generate_new_scenario()
+                    
+                    if not can_generate:
+                        await websocket.send_json({"error": reason})
+                        continue
+                    
+                    try:
+                        # Generate scenario (AI or fallback)
+                        scenario = await agent_service.generate_scam_scenario()
+                        session.start_scenario(scenario)
+                        
+                        await websocket.send_json({
+                            "event": "scenario_start",
+                            "scenario_id": f"scen_{session_id}_{int(datetime.utcnow().timestamp())}",
+                            "sender": "Infiltrator",
+                            "message": scenario.get("message"),
+                            "amount": scenario.get("amount"),
+                            "tip": scenario.get("tip"),
+                            "scam_type": scenario.get("scenario_type"),
+                            "risk_level": scenario.get("risk_level"),
+                            "ui_title": scenario.get("ui_title"),
+                            "ui_description": scenario.get("ui_description"),
+                            "recommended_actions": scenario.get("recommended_actions", []),
+                            "await_user_response": scenario.get("await_user_response", True),
+                            "next_step": scenario.get("next_step")
+                        })
+                        
+                        logger.info(f"[WS] {session_id}: Scenario started")
+                    
+                    except Exception as e:
+                        logger.error(f"[WS] Scenario generation error: {e}")
+                        # Send fallback
+                        scenario = fallback_engine.generate_random_scenario()
+                        session.start_scenario(scenario)
+                        
+                        await websocket.send_json({
+                            "event": "scenario_start",
+                            "sender": "Infiltrator",
+                            "message": scenario.get("message"),
+                            "scenario_type": scenario.get("scenario_type"),
+                            "is_fallback": True,
+                        })
+                
+                # User response to active scenario
+                elif session.active_scenario:
+                    try:
+                        # Mark that user has responded to advance the state machine
+                        session.record_user_response()
+                        
+                        next_message = await agent_service.continue_scenario(
+                            session.active_scenario,
+                            user_message
+                        )
+                        
+                        await websocket.send_json({
+                            "event": "scenario_continue",
+                            "sender": "Infiltrator",
+                            "message": next_message.get("message"),
+                            "amount": next_message.get("amount"),
+                            "tip": next_message.get("tip"),
+                            "scam_type": next_message.get("scenario_type"),
+                            "ui_title": next_message.get("ui_title"),
+                            "ui_description": next_message.get("ui_description"),
+                            "recommended_actions": next_message.get("recommended_actions", []),
+                            "await_user_response": True,
+                        })
+                    
+                    except Exception as e:
+                        logger.error(f"[WS] Scenario error: {e}")
+                        await websocket.send_json({"error": "Scenario error"})
+                        session.resolve_scenario()
+                
+                else:
                     await websocket.send_json({
-                        "sender": "Infiltrator",
-                        "message": res_json.get("message", res_json.get("text", "Error parsing message")),
-                        "amount": res_json.get("amount", 2847),
-                        "tip": res_json.get("tip", "Be cautious with unknown messages."),
-                        "scam_type": res_json.get("scenario_type", res_json.get("scam_type", "Unknown Scam")),
-                        "risk_level": res_json.get("risk_level", "high"),
-                        "ui_title": res_json.get("ui_title", "⚠ Suspicious Message"),
-                        "ui_description": res_json.get("ui_description", "An unknown message was received."),
-                        "recommended_actions": res_json.get("recommended_actions", []),
-                        "await_user_response": res_json.get("await_user_response", True),
-                        "next_step": res_json.get("next_step", "")
+                        "message": "No active scenario. Type 'start' to begin."
                     })
-                except Exception:
-                    # Fallback if json parsing fails
-                    await websocket.send_json({
-                        "sender": "Infiltrator",
-                        "message": agent_reply,
-                        "amount": 2847,
-                        "tip": "Real utility companies never threaten immediate disconnection via SMS.",
-                        "scam_type": "Electricity Disconnection",
-                        "risk_level": "high",
-                        "ui_title": "⚠ Suspicious Message",
-                        "ui_description": "An unknown message was received.",
-                        "recommended_actions": [],
-                        "await_user_response": True,
-                        "next_step": ""
-                    })
-            except Exception:
-                await websocket.send_json({"error": "Failed to process message."})
-    except WebSocketDisconnect:
-        manager.disconnect(websocket)
+            
+            except WebSocketDisconnect:
+                logger.info(f"[WS] Disconnected: {session_id}")
+                break
+            
+            except Exception as e:
+                logger.error(f"[WS] Error: {e}")
+                try:
+                    await websocket.send_json({"error": "Internal error"})
+                except:
+                    break
+    
+    finally:
+        await war_room_manager.disconnect(session_id)
+        logger.info(f"[WS] Cleaned up: {session_id}")
 
-# ──────────────────────────────────────────────
-# Serve built frontend in production (Cloud Run)
-# ──────────────────────────────────────────────
-static_dir = os.path.join(os.path.dirname(__file__), "static")
-if os.path.isdir(static_dir):
-    app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
 
-# ──────────────────────────────────────────────
-# Run with:  uvicorn main:app --host 0.0.0.0 --port 8000
-# Or:        python main.py
-# ──────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────
+# STATIC FILE SERVING (Frontend SPA)
+# ────────────────────────────────────────────────────────────────────────────
+
+static_dir = Path(__file__).parent / "static"
+
+if static_dir.exists():
+    logger.info(f"✅ Production mode: Serving frontend from {static_dir}")
+    
+    # Mount assets (CSS, JS, Images)
+    # We mount /assets specifically to avoid interference with /api
+    assets_dir = static_dir / "assets"
+    if assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
+
+    # SPA Fallback: Serve index.html for all non-API routes
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        # Exclude API and WebSocket routes from fallback
+        if full_path.startswith("api") or full_path.startswith("ws"):
+            raise HTTPException(status_code=404, detail="API route not found")
+        
+        index_file = static_dir / "index.html"
+        if index_file.exists():
+            return FileResponse(index_file)
+        
+        return {"error": "Frontend build not found in static/"}
+
+else:
+    logger.warning(f"⚠️  Development mode: Static directory not found at {static_dir}")
+    logger.info("   (This is normal if you are running frontend via 'npm run dev')")
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# PRODUCTION STARTUP
+# ────────────────────────────────────────────────────────────────────────────
+
 if __name__ == "__main__":
     import uvicorn
-
-    port = int(os.environ.get("PORT", 8000))
-    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
+    
+    port = int(os.environ.get("PORT", 8080))
+    host = os.environ.get("HOST", "0.0.0.0")
+    
+    logger.info(f"\n🚀 Starting Uvicorn server on {host}:{port}")
+    
+    uvicorn.run(
+        app,
+        host=host,
+        port=port,
+        log_level="info",
+        access_log=True,
+        timeout_keep_alive=30,
+    )

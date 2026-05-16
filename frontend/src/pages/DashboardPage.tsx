@@ -1,9 +1,11 @@
+import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { useEffect, useState } from "react";
-import { Shield, AlertTriangle, Eye, CheckCircle, RefreshCw } from "lucide-react";
+import { Shield, AlertTriangle, Eye, CheckCircle, RefreshCw, User as UserIcon } from "lucide-react";
 import CircularProgress from "@/components/CircularProgress";
 import GlowCard from "@/components/GlowCard";
-import { fetchHistory, getBackendUrl, type HistoryEntry } from "@/lib/api";
+import { fetchHistory, getDashboardData, type HistoryEntry } from "@/lib/api";
+import { useAuth } from "@/auth/AuthContext";
+import { useNavigate } from "react-router-dom";
 
 const CountUpNumber = ({ value, className }: { value: number; className?: string }) => {
   const [display, setDisplay] = useState(0);
@@ -21,43 +23,52 @@ const CountUpNumber = ({ value, className }: { value: number; className?: string
 };
 
 const DashboardPage = () => {
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const navigate = useNavigate();
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
-  const [mentorScore, setMentorScore] = useState<number | null>(null);
-  const [mentorAlerts, setMentorAlerts] = useState<any[]>([]);
+  const [stats, setStats] = useState<any>(null);
 
-  const loadHistory = async () => {
+  useEffect(() => {
+    if (!authLoading && !isAuthenticated) {
+      navigate("/login");
+    }
+  }, [isAuthenticated, authLoading, navigate]);
+
+  const loadDashboard = async () => {
     setLoading(true);
     try {
-      const res = await fetchHistory();
-      setHistory(res.data.history);
+      const [historyRes, statsRes] = await Promise.all([
+        fetchHistory(),
+        getDashboardData()
+      ]);
       
-      const backendUrl = getBackendUrl();
-      const hRes = await fetch(`${backendUrl}/health-score`);
-      if (hRes.ok) {
-        const hData = await hRes.json();
-        const mData = hData.data || hData;
-        if (mData.score !== undefined) setMentorScore(mData.score);
-        if (mData.alerts) setMentorAlerts(mData.alerts);
-      }
-    } catch {
-      setHistory([]);
+      setHistory(historyRes.data.history || []);
+      setStats(statsRes.data);
+    } catch (err) {
+      console.error("Failed to load dashboard:", err);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadHistory();
-  }, []);
+    if (isAuthenticated) {
+      loadDashboard();
+    }
+  }, [isAuthenticated]);
 
-  const scamCount = history.filter((h) => h.classification === "SCAM").length;
-  const safeCount = history.filter((h) => h.classification === "SAFE").length;
-  const totalCount = history.length;
-  
-  const xp = safeCount * 50 - scamCount * 20 + totalCount * 10;
-  const currentXP = Math.max(xp, 0);
-  const level = Math.floor(currentXP / 100) + 1;
+  if (authLoading || !user) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <RefreshCw className="h-8 w-8 animate-spin text-cyber" />
+      </div>
+    );
+  }
+
+  const currentXP = stats?.xp || user.xp || 0;
+  const level = stats?.level || user.level || "Beginner";
+  const securityScore = stats?.security_score || user.security_score || 0;
   const xpInCurrentLevel = currentXP % 100;
   
   let rankStr = "Novice";
@@ -70,31 +81,30 @@ const DashboardPage = () => {
     rankColor = "text-warning";
   }
 
-  const fallbackAlerts = history.slice(0, 4).map((h) => ({
+  const alerts = stats?.alerts || history.slice(0, 4).map((h) => ({
     time: new Date(h.timestamp).toLocaleString(),
     text: `${h.classification} – ${h.message.slice(0, 50)}…`,
     type: h.classification === "SCAM" ? ("danger" as const) : ("safe" as const),
   }));
-  const alerts = mentorAlerts.length > 0 ? mentorAlerts : fallbackAlerts;
 
   return (
     <div className="p-6 md:p-8 max-w-6xl mx-auto space-y-8">
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-2">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-foreground">Dashboard</h1>
-            <p className="text-muted-foreground">Your security overview and activity log</p>
+            <h1 className="text-3xl font-bold text-foreground">Welcome back, {user.name}</h1>
+            <p className="text-muted-foreground">Your cybersecurity status: <span className="text-safe font-medium">{level}</span></p>
           </div>
           <motion.button
             whileHover={{ scale: 1.05, rotate: 90 }}
             whileTap={{ scale: 0.95 }}
-            onClick={loadHistory}
+            onClick={loadDashboard}
             className="p-2 rounded-lg border border-border hover:bg-secondary transition-colors"
           >
             <RefreshCw className={`h-4 w-4 text-muted-foreground ${loading ? "animate-spin" : ""}`} />
           </motion.button>
         </div>
-        <p className="text-xs text-cyber">Live data from Kavach AI backend</p>
+        <p className="text-xs text-cyber">Kavach AI Security Index: {securityScore}%</p>
       </motion.div>
 
       {/* Top Cards */}
@@ -123,15 +133,15 @@ const DashboardPage = () => {
             <h3 className="text-sm font-medium text-muted-foreground">Achievements</h3>
             <div className="grid grid-cols-2 gap-3">
               <div className="text-center p-3 rounded-lg bg-secondary/30">
-                <CountUpNumber value={totalCount} className="text-2xl font-bold text-foreground" />
+                <CountUpNumber value={stats?.simulations_attempted || history.length} className="text-2xl font-bold text-foreground" />
                 <p className="text-xs text-muted-foreground">Missions</p>
               </div>
               <div className="text-center p-3 rounded-lg bg-secondary/30">
-                <CountUpNumber value={scamCount} className="text-2xl font-bold text-danger" />
+                <CountUpNumber value={stats?.scams_detected || history.filter(h => h.classification === 'SCAM').length} className="text-2xl font-bold text-danger" />
                 <p className="text-xs text-muted-foreground">Threats Found</p>
               </div>
               <div className="text-center p-3 rounded-lg bg-secondary/30">
-                <CountUpNumber value={safeCount} className="text-2xl font-bold text-safe" />
+                <CountUpNumber value={stats?.simulations_passed || history.filter(h => h.classification === 'SAFE').length} className="text-2xl font-bold text-safe" />
                 <p className="text-xs text-muted-foreground">Safe Actions</p>
               </div>
               <div className="text-center p-3 rounded-lg bg-secondary/30">

@@ -1,5 +1,21 @@
-fastapi
-uvicorn[standard]
-pydantic
-python-dotenv
-groq
+# FastAPI Web Framework
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+
+# Data Validation & Serialization
+pydantic[email]==2.5.0
+
+# Environment Configuration
+python-dotenv==1.0.0
+
+# AI/LLM Integration
+groq==0.4.2
+requests==2.31.0
+
+# Security & Authentication
+bcrypt==4.1.1
+PyJWT>=2.8.0
+
+# Database
+sqlalchemy==2.0.23
+psycopg2-binary==2.9.9

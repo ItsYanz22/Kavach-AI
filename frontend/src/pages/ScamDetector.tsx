@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Search, AlertTriangle, ShieldCheck, Loader2, WifiOff } from "lucide-react";
 import CircularProgress from "@/components/CircularProgress";
