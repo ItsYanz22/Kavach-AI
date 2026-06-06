@@ -2,12 +2,20 @@ services:
   - type: web
     name: kavach-ai-backend
     env: docker
-    dockerfilePath: ./Dockerfile.production
+    dockerfilePath: ./Dockerfile
     autoDeploy: true
     envVars:
       - key: PORT
         value: 8080
+      - key: ENVIRONMENT
+        value: production
+      - key: DEBUG_MODE
+        value: "false"
       - key: GROQ_API_KEY
         sync: false
       - key: CORS_ORIGINS
-        value: "https://your-vercel-app-url.vercel.app" # User needs to update this with their Vercel frontend URL
+        value: "https://your-render-frontend-url.onrender.com,https://your-vercel-app-url.vercel.app"
+      - key: JWT_SECRET_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false

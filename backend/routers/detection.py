@@ -36,8 +36,8 @@ async def health_check() -> ApiResponse:
     )
 
 
-@router.post("/detect")
-async def detect(
+@router.post("/scan")
+async def scan_message(
     data: MessageInput,
     db: Session = Depends(get_db)
 ) -> ApiResponse:

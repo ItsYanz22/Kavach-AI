@@ -181,8 +181,8 @@ async function apiFetch<T>(
       console.error(`  3. Network connectivity problem`);
       console.error(`  4. Wrong API_BASE URL: ${API_BASE}`);
       throw new Error(
-        `Network error: Cannot reach ${API_BASE}. Is the backend running? ` +
-        `Check console for CORS errors.`
+        `Network error: Cannot reach backend at ${url}. ` +
+        `Check console for CORS or adblocker errors.`
       );
     }
     
@@ -198,7 +198,7 @@ async function apiFetch<T>(
 
 // ── Endpoint helpers ───────────────────────────
 export async function detectScam(text: string) {
-  return apiFetch<DetectResult>("/api/detect", {
+  return apiFetch<DetectResult>("/api/scan", {
     method: "POST",
     body: JSON.stringify({ text }),
   });

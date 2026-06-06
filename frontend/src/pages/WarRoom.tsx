@@ -37,16 +37,18 @@ const WarRoom = () => {
   const [messages, setMessages] = useState<{ sender: "received" | "sent", message: string, time: string, senderName?: string }[]>([]);
   const [userInput, setUserInput] = useState("");
   const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const [scenarioId, setScenarioId] = useState<string | null>(null);
 
-  const [scamAmount, setScamAmount] = useState<number>(2847);
-  const [scamTip, setScamTip] = useState<string>("Real utility companies never threaten immediate disconnection via SMS, and never use shortened links for payments.");
-  const [scamType, setScamType] = useState<string>("Electricity Scam");
-  const [uiTitle, setUiTitle] = useState<string>("⚡ What will you do?");
-  const [uiDescription, setUiDescription] = useState<string>("You received a suspicious message. Choose wisely — one wrong move and you could lose everything.");
+  const [scamAmount, setScamAmount] = useState<number>(0);
+  const [scamTip, setScamTip] = useState<string>("");
+  const [scamType, setScamType] = useState<string>("");
+  const [uiTitle, setUiTitle] = useState<string>("⚡ Initializing scenario...");
+  const [uiDescription, setUiDescription] = useState<string>("AI is generating a personalized scam simulation for you. Please wait...");
   const [recommendedActions, setRecommendedActions] = useState<{label: string, action_id: string, type: string}[]>([]);
   const [awaitUserResponse, setAwaitUserResponse] = useState<boolean>(false);
+  const [isInitialized, setIsInitialized] = useState<boolean>(false);
 
   const dangerMode = countdown <= 10;
 
@@ -60,19 +62,47 @@ const WarRoom = () => {
     }
   }, [isAuthenticated, authLoading, navigate]);
 
-  const connectWs = React.useCallback(() => {
+  const connectWs = React.useCallback((force = false) => {
     if (!isAuthenticated) return;
-    if (wsRef.current) wsRef.current.close();
+    
+    // Prevent reconnect loops and premature closures
+    if (!force && wsRef.current && (wsRef.current.readyState === WebSocket.CONNECTING || wsRef.current.readyState === WebSocket.OPEN)) {
+      return;
+    }
+    
+    if (wsRef.current) {
+      wsRef.current.onclose = null; // Prevent auto-reconnect from firing
+      wsRef.current.close();
+      wsRef.current = null;
+    }
     
     const wsUrl = getWsUrl();
     const ws = new WebSocket(wsUrl);
     
     ws.onopen = () => {
-      ws.send(jsonStr({ 
-        message: "start", 
-        token: getToken() 
-      }));
-      setTypingVisible(true);
+      console.log("[WarRoom] Connected to AI scenario");
+      if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+      
+      // Auto-initialize scenario on first connection
+      if (!isInitialized) {
+        setTimeout(() => {
+          console.log("[WarRoom] Auto-starting first scenario...");
+          ws.send(JSON.stringify({ message: "start", token: getToken() }));
+          setIsInitialized(true);
+        }, 500);
+      }
+    };
+
+    ws.onclose = () => {
+      console.log("[WarRoom] Disconnected from AI scenario");
+      // Auto-reconnect after 3 seconds
+      reconnectTimeoutRef.current = setTimeout(() => {
+        if (isAuthenticated) connectWs();
+      }, 3000);
+    };
+
+    ws.onerror = (e) => {
+      console.error("[WarRoom] WebSocket error:", e);
     };
 
     ws.onmessage = (event) => {
@@ -103,14 +133,19 @@ const WarRoom = () => {
       }
     };
     wsRef.current = ws;
-  }, [isAuthenticated, getToken]);
+  }, [isAuthenticated, getToken, isInitialized]);
 
   useEffect(() => {
     if (isAuthenticated) {
       connectWs();
     }
     return () => {
-      if (wsRef.current) wsRef.current.close();
+      if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+      if (wsRef.current) {
+        wsRef.current.onclose = null; // Prevent reconnect loop on unmount
+        wsRef.current.close();
+        wsRef.current = null;
+      }
     };
   }, [isAuthenticated, connectWs]);
 
@@ -264,12 +299,16 @@ const WarRoom = () => {
     setPaymentStage("idle");
     setAwaitUserResponse(false);
     setRecommendedActions([]);
-    setUiTitle("⚡ What will you do?");
-    setUiDescription("You received a suspicious message. Choose wisely — one wrong move and you could lose everything.");
+    setScamAmount(0);
+    setScamTip("");
+    setScamType("");
+    setUiTitle("⚡ Initializing scenario...");
+    setUiDescription("AI is generating a personalized scam simulation for you. Please wait...");
     setAnalysisData(null);
     setFeedback(null);
     setShowAnalysis(false);
-    connectWs();
+    setIsInitialized(false);
+    connectWs(true); // Force reconnect
   };
 
   return (

@@ -119,9 +119,8 @@ const ScamDetector = () => {
             <div>
               <h3 className="text-danger font-semibold">Connection Error</h3>
               <p className="text-sm text-muted-foreground mt-1">
-                Could not reach the backend. Make sure the server is running on port 8000.
+                {error}
               </p>
-              <p className="text-xs text-muted-foreground mt-1 font-mono">{error}</p>
             </div>
           </motion.div>
         )}

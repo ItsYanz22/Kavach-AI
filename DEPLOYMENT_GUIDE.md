@@ -439,6 +439,153 @@ CORS_ORIGINS=https://my-app.run.app
 
 ---
 
+## ☁️ SCENARIO 4: RENDER DEPLOYMENT (Production-Ready)
+
+### Why Render?
+- Free tier with generous limits
+- Automatic deployments from GitHub
+- Built-in SSL/HTTPS
+- WebSocket support (critical for War Room)
+- PostgreSQL database available
+- One-click rollback
+
+### Prerequisites:
+1. GitHub account with your repo pushed
+2. Render account (free at render.com)
+3. Groq API key from console.groq.com
+4. 5-10 minutes setup time
+
+### Step 1: Create Render Account & Link GitHub
+
+1. Go to [render.com](https://render.com)
+2. Sign up with GitHub
+3. Authorize Render to access your repos
+4. Accept terms
+
+### Step 2: Deploy Backend Service
+
+1. In Render dashboard: **New +** → **Web Service**
+2. Select your GitHub repo
+3. Configure:
+   ```
+   Name:           kavach-ai-backend
+   Environment:    Docker
+   Region:         Closest to you (us-east-1, eu-west-1, etc.)
+   Branch:         main
+   Dockerfile Path: ./Dockerfile
+   ```
+4. **Create Web Service**
+5. Wait for build (~5-10 minutes)
+
+### Step 3: Set Environment Variables
+
+In Render dashboard → kavach-ai-backend → **Environment** → **Add Environment Variable**
+
+Add each one (all required):
+
+| Key | Value | Notes |
+|-----|-------|-------|
+| `PORT` | `8080` | Don't change |
+| `ENVIRONMENT` | `production` | For Render |
+| `DEBUG_MODE` | `false` | Security |
+| `GROQ_API_KEY` | `gsk_xxx...` | Get from console.groq.com |
+| `JWT_SECRET_KEY` | `your_secret_here_min32chars` | Change to random string |
+| `CORS_ORIGINS` | `https://your-app.onrender.com` | Will update after deploy |
+| `DATABASE_URL` | *(optional)* | SQLite used by default |
+
+**For CORS_ORIGINS:**
+- After first deploy, go to your service URL
+- Replace `your-app` with actual service name
+- If hosting frontend separately: add that URL too
+
+Example:
+```
+https://kavach-ai-backend.onrender.com,https://your-vercel-frontend.vercel.app
+```
+
+### Step 4: Monitor First Deployment
+
+1. In Render dashboard, go to **Events** tab
+2. Watch build logs
+3. Look for: **Service is live** ✅
+4. Test health endpoint:
+   ```
+   curl https://your-service-name.onrender.com/health
+   ```
+   Should return: `{"status": "healthy", ...}`
+
+### Step 5: Deploy Frontend (Optional)
+
+If deploying frontend to Render too:
+
+1. **New +** → **Static Site**
+2. Connect same GitHub repo
+3. Build command: `cd frontend && npm install && npm run build`
+4. Publish directory: `frontend/dist`
+5. **Create Static Site**
+6. After deploy, update backend `CORS_ORIGINS` with frontend URL
+
+### Common Render Issues & Fixes
+
+**"Build failed"**
+- Check build logs in Events
+- Usually: missing dependencies
+- Solution: Ensure frontend/package-lock.json is committed
+
+**"Service crashed"**
+- Check logs in Events tab
+- Common: GROQ_API_KEY missing or invalid
+- Solution: Verify all env vars are set
+
+**"504 Gateway Timeout"**
+- Render free tier has memory limits
+- Deploy during off-peak hours
+- Use PostgreSQL instead of SQLite for better performance
+
+**WebSocket fails after 55 seconds**
+- Render idle timeout
+- Backend auto-restarts properly
+- War Room auto-reconnects (expected)
+
+**"Failed to Fetch" from frontend**
+- Check CORS_ORIGINS includes frontend URL
+- Verify HTTPS (not HTTP)
+- Check frontend has correct API URL
+
+### Render Free Tier Limitations
+
+| Limit | Impact | Workaround |
+|-------|--------|-----------|
+| 750 hrs/month | Service sleeps after 15 min idle | Paid plan removes sleep |
+| 0.5 CPU | Slow builds | Use builds when fresh |
+| 512 MB RAM | No large LLM models | Use API instead (Groq ✓) |
+| SQLite only | Database resets | Use PostgreSQL addon |
+
+### Upgrading Render Plan
+
+If you outgrow free tier:
+1. Render → Account → Plans
+2. Choose Starter ($12/month minimum)
+3. Service automatically upgrades (no rebuild needed)
+
+### Monitoring on Render
+
+**Check service health:**
+- Render dashboard → Metrics tab
+- Shows CPU, memory, response times
+
+**View logs:**
+- Render dashboard → Logs tab
+- Real-time streaming
+- Searchable by keyword
+
+**Auto-redeploy on GitHub push:**
+- Already enabled by default
+- Push to main → auto-builds and deploys
+- Takes 5-10 minutes
+
+---
+
 ## 📞 Support
 
 If you're still seeing "Failed to Fetch" errors:
