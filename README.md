@@ -129,37 +129,23 @@ Each action changes the scenario dynamically.
 
 # 🏗️ Tech Stack
 
-## Frontend
+| Layer | Technologies |
+|-------|--------------|
+| **Frontend** | React 18 • TypeScript • Vite • TailwindCSS • Framer Motion • Shadcn UI |
+| **Backend** | FastAPI • Python 3.11 • Uvicorn • WebSockets • SQLAlchemy ORM |
+| **Database** | SQLite (Local) • PostgreSQL (Production) |
+| **AI/LLM** | Groq API • Mixtral-8x7b-32768 • Llama-3.3-70b-versatile • Multi-Agent Orchestration |
+| **Real-time** | WebSocket Protocol • JSON-based Message Streaming |
+| **Authentication** | JWT • Bearer Token • Bcrypt |
+| **Cloud** | Google Cloud Run • Cloud Build • Secret Manager • Artifact Registry |
+| **DevOps** | Docker • Multi-stage Build • Cloud-native Deployment |
+| **Monitoring** | Structured JSON Logging • Health Checks • Performance Metrics |
 
-* React
-* TypeScript
-* Vite
-* TailwindCSS
-* Framer Motion
-
-## Backend
-
-* FastAPI
-* Python
-* WebSockets
-* Pydantic
-
-## Database
-
-* SQLite
-
-## AI / Agentic Systems
-
-* Multi-Agent Workflow Architecture
-* Prompt Engineering
-* Dynamic Scenario Generation
-
-## DevOps / Cloud
-
-* Docker
-* Google Cloud Run
-* Google Cloud Build
-* Artifact Registry
+### Featured Components
+- **Multi-Agent System**: Infiltrator, Forensic, Mentor agents with workflow coordination
+- **Achievement System**: Badge tracking with 8+ milestone types
+- **Dynamic Scenario Generation**: AI-powered scam simulation with psychological depth
+- **Real-time War Room**: Interactive WebSocket-based scam simulation
 
 ---
 
