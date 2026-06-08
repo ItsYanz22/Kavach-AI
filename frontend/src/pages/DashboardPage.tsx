@@ -28,6 +28,7 @@ const DashboardPage = () => {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<any>(null);
+  const [achievements, setAchievements] = useState<any[]>([]);
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
@@ -38,13 +39,19 @@ const DashboardPage = () => {
   const loadDashboard = async () => {
     setLoading(true);
     try {
-      const [historyRes, statsRes] = await Promise.all([
+      const [historyRes, statsRes, achievementsRes] = await Promise.all([
         fetchHistory(),
-        getDashboardData()
+        getDashboardData(),
+        fetch("/api/learning/achievements", {
+          headers: {
+            "Authorization": `Bearer ${localStorage.getItem("token")}`
+          }
+        }).then(r => r.json()).catch(() => ({ data: [] }))
       ]);
       
       setHistory(historyRes.data.history || []);
       setStats(statsRes.data);
+      setAchievements(achievementsRes.data || []);
     } catch (err) {
       console.error("Failed to load dashboard:", err);
     } finally {
@@ -131,7 +138,27 @@ const DashboardPage = () => {
         <GlowCard glowColor="cyber" delay={0.2}>
           <div className="space-y-3">
             <h3 className="text-sm font-medium text-muted-foreground">Achievements</h3>
-            <div className="grid grid-cols-2 gap-3">
+            {achievements.length === 0 ? (
+              <div className="text-center text-xs text-muted-foreground py-4">
+                <p>Complete simulations to earn badges!</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-2">
+                {achievements.slice(0, 4).map((badge) => (
+                  <motion.div
+                    key={badge.badge_id}
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="p-2 rounded-lg bg-cyber/10 border border-cyber/30 text-center"
+                    title={badge.title}
+                  >
+                    <p className="text-lg">{badge.icon}</p>
+                    <p className="text-[9px] text-muted-foreground truncate">{badge.title}</p>
+                  </motion.div>
+                ))}
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-3 mt-3 pt-3 border-t border-border">
               <div className="text-center p-3 rounded-lg bg-secondary/30">
                 <CountUpNumber value={stats?.simulations_attempted || history.length} className="text-2xl font-bold text-foreground" />
                 <p className="text-xs text-muted-foreground">Missions</p>

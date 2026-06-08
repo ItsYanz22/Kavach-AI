@@ -330,7 +330,7 @@ async def submit_simulation_response(
         else:
             user.total_mistakes += 1
         
-        # Update XP
+    # Update XP
         user.xp += xp_earned
         user.total_xp += xp_earned
         
@@ -339,6 +339,52 @@ async def submit_simulation_response(
         if total_sims > 0:
             accuracy = (user.simulations_passed / total_sims) * 100
             user.security_score = min(100.0, accuracy)
+        
+        # ─────────────────────────────────────────────────────────────────────
+        # ACHIEVEMENT TRACKING
+        # ─────────────────────────────────────────────────────────────────────
+        achievements_to_award = []
+        
+        # Check for specific choice achievements
+        if request.choice == "block" and user.simulations_passed == 1:
+            achievements_to_award.append(("first_blocker", "🚫 First Block", "Blocked your first scammer!"))
+        elif request.choice == "report" and user.total_scams_detected == 1:
+            achievements_to_award.append(("first_reporter", "⚠️ Community Guardian", "Reported your first scam!"))
+        elif request.choice == "analyze" and user.total_scams_detected == 1:
+            achievements_to_award.append(("first_analyzer", "🔍 Detective", "Analyzed your first scam!"))
+        
+        # Milestone achievements
+        if user.simulations_attempted == 5:
+            achievements_to_award.append(("quintet", "🎯 Quintet Master", "Completed 5 simulations!"))
+        elif user.simulations_attempted == 10:
+            achievements_to_award.append(("decathlon", "🏆 Decathlon Champion", "Completed 10 simulations!"))
+        elif user.simulations_attempted == 25:
+            achievements_to_award.append(("quarter_century", "🌟 Quarter Century", "Completed 25 simulations!"))
+        
+        # Accuracy achievements
+        if total_sims >= 5 and user.security_score >= 90:
+            achievements_to_award.append(("accuracy_master", "💯 Accuracy Master", "Maintained 90%+ accuracy!"))
+        elif total_sims >= 10 and user.security_score >= 80:
+            achievements_to_award.append(("steady_defender", "🛡️ Steady Defender", "Maintained 80%+ accuracy!"))
+        
+        # Award achievements
+        for badge_id, title, description in achievements_to_award:
+            existing = db.query(Achievement).filter(
+                Achievement.user_id == current_user["user_id"],
+                Achievement.badge_id == badge_id
+            ).first()
+            
+            if not existing:
+                achievement = Achievement(
+                    id=str(uuid.uuid4()),
+                    user_id=current_user["user_id"],
+                    badge_id=badge_id,
+                    title=title,
+                    description=description,
+                    icon="🏅"
+                )
+                db.add(achievement)
+
     
     db.commit()
     

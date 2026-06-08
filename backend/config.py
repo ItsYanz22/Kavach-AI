@@ -29,6 +29,8 @@ class EnvConfig:
     # Database
     DATABASE_URL: str = "sqlite:///./kavach.db"
     SQLALCHEMY_TRACK_MODIFICATIONS: bool = False
+    MONGODB_URI: Optional[str] = None
+    MONGODB_DATABASE: str = "kavach_ai"
     
     # JWT
     JWT_SECRET_KEY: str = "dev-secret-key-change-in-production"
@@ -75,6 +77,16 @@ class EnvConfig:
         # Database
         cls.DATABASE_URL = os.environ.get("DATABASE_URL", cls.DATABASE_URL)
         logger.info(f"📊 DATABASE_URL: {cls.DATABASE_URL}")
+        
+        # MongoDB
+        cls.MONGODB_URI = os.environ.get("MONGODB_URI")
+        cls.MONGODB_DATABASE = os.environ.get("MONGODB_DATABASE", "kavach_ai")
+        if cls.MONGODB_URI:
+            masked_uri = cls.MONGODB_URI[:20] + "..." if len(cls.MONGODB_URI) > 20 else "***"
+            logger.info(f"✅ MONGODB_URI loaded: {masked_uri}")
+            logger.info(f"📦 MONGODB_DATABASE: {cls.MONGODB_DATABASE}")
+        else:
+            logger.warning("⚠️  MONGODB_URI not set - using SQLite only")
         
         # JWT
         cls.JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY", cls.JWT_SECRET_KEY)

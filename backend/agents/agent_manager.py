@@ -61,12 +61,12 @@ class AgentManager:
             # Build messages for this request
             messages = self.conversation_history.copy()
             
-            # List of available Groq models (in preference order for JSON output)
+            # List of available Groq models (in preference order)
+            # Using models confirmed available on Groq free tier
             available_models = [
-                "llama3-8b-8192",
-                "llama3-70b-8192",
-                "llama-3.3-70b-versatile",
-                "mixtral-8x7b-32768",
+                "mixtral-8x7b-32768",      # Best for JSON and complex tasks
+                "llama-3.3-70b-versatile",  # Good alternative
+                "llama3-70b-8192",          # Another option
             ]
             
             model_name = available_models[0]
@@ -86,11 +86,11 @@ class AgentManager:
                     response_format={"type": "json_object"},
                 )
             except Exception as model_error:
-                # If primary model fails, try fallback
+                # If primary model fails, try fallback models
                 if any(x in str(model_error).lower() for x in ["decommissioned", "not available", "404"]):
-                    logger.warning(f"[{self.agent_type}] Model {model_name} unavailable, trying llama3-8b-8192 fallback...")
+                    logger.warning(f"[{self.agent_type}] Model {model_name} unavailable, trying llama-3.3-70b-versatile...")
                     response = self.client.chat.completions.create(
-                        model="llama3-8b-8192",
+                        model="llama-3.3-70b-versatile",
                         messages=[
                             {"role": "system", "content": self.system_instruction},
                             *messages,

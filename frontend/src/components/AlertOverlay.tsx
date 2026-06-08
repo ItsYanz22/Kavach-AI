@@ -7,6 +7,12 @@ interface AlertOverlayProps {
   type: "scammed" | "safe";
   show: boolean;
   onClose: () => void;
+  scenarioData?: {
+    amount: number;
+    riskLevel: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+    scamType: string;
+    reasons: string[];
+  };
 }
 
 // Floating particle component
@@ -27,23 +33,39 @@ const Particle = ({ color, delay, index }: { color: string; delay: number; index
   );
 };
 
-const AlertOverlay = ({ type, show, onClose }: AlertOverlayProps) => {
+const AlertOverlay = ({ type, show, onClose, scenarioData }: AlertOverlayProps) => {
   const [showParticles, setShowParticles] = useState(false);
   const [showBreakdown, setShowBreakdown] = useState(false);
   const [actionMessage, setActionMessage] = useState("");
+  const [securityScore, setSecurityScore] = useState(-15);
 
+  // Calculate dynamic security score based on outcome
   useEffect(() => {
-    if (show) {
-      setShowParticles(true);
-      setShowBreakdown(false);
-      setActionMessage("");
-      const timer = setTimeout(() => setShowParticles(false), 2000);
-      return () => clearTimeout(timer);
+    if (show && type === "scammed") {
+      // User got scammed - score decreases by risk level
+      const riskMultiplier = {
+        "LOW": 5,
+        "MEDIUM": 10,
+        "HIGH": 15,
+        "CRITICAL": 25
+      };
+      const deduction = riskMultiplier[scenarioData?.riskLevel || "HIGH"] || 15;
+      setSecurityScore(-deduction);
+    } else if (show && type === "safe") {
+      // User avoided scam - score increases
+      setSecurityScore(Math.random() > 0.5 ? 20 : 25);
     }
-  }, [show]);
+  }, [show, type, scenarioData?.riskLevel]);
 
   const isScam = type === "scammed";
   const particleColor = isScam ? "hsl(0, 84%, 60%)" : "hsl(142, 71%, 45%)";
+  const displayAmount = scenarioData?.amount || 2847;
+  const displayRiskLevel = scenarioData?.riskLevel || "HIGH";
+  const displayReasons = scenarioData?.reasons || [
+    "Urgency pressure",
+    "Suspicious link",
+    "Unknown sender"
+  ];
 
   return (
     <AnimatePresence>
@@ -202,9 +224,9 @@ const AlertOverlay = ({ type, show, onClose }: AlertOverlayProps) => {
               >
                 <p className="text-sm font-semibold text-danger mb-2">Why you got scammed:</p>
                 <ul className="space-y-1 text-xs text-muted-foreground">
-                  <li>- Urgency pressure</li>
-                  <li>- Suspicious link</li>
-                  <li>- Unknown sender</li>
+                  {displayReasons.map((reason, idx) => (
+                    <li key={idx}>- {reason}</li>
+                  ))}
                 </ul>
                 <p className="text-xs text-warning mt-3">Never trust urgent payment requests via SMS</p>
               </motion.div>
@@ -233,21 +255,21 @@ const AlertOverlay = ({ type, show, onClose }: AlertOverlayProps) => {
             >
               <div className="text-center">
                 <p className={cn("text-lg font-bold", isScam ? "text-danger" : "text-safe")}>
-                  {isScam ? "₹2,847" : "₹0"}
+                  {isScam ? `₹${displayAmount.toLocaleString("en-IN")}` : "₹0"}
                 </p>
                 <p className="text-[10px] text-muted-foreground">{isScam ? "Money Lost" : "Money Lost"}</p>
               </div>
               <div className="w-px h-8 bg-border" />
               <div className="text-center">
                 <p className={cn("text-lg font-bold", isScam ? "text-danger" : "text-safe")}>
-                  {isScam ? "HIGH" : "SAFE"}
+                  {isScam ? displayRiskLevel : "SAFE"}
                 </p>
                 <p className="text-[10px] text-muted-foreground">Risk Level</p>
               </div>
               <div className="w-px h-8 bg-border" />
               <div className="text-center">
                 <p className={cn("text-lg font-bold", isScam ? "text-danger" : "text-safe")}>
-                  {isScam ? "-15" : "+25"}
+                  {securityScore > 0 ? `+${securityScore}` : securityScore}
                 </p>
                 <p className="text-[10px] text-muted-foreground">Score</p>
               </div>

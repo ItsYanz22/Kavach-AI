@@ -204,12 +204,14 @@ ENVIRONMENT=development
 ### 5. Run Backend
 
 ```bash
-uvicorn main:app --reload
+# From project root
+python -m uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 ### 6. Run Frontend
 
 ```bash
+# From frontend directory
 npm run dev
 ```
 

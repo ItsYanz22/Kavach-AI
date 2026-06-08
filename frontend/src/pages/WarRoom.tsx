@@ -721,7 +721,17 @@ const WarRoom = () => {
         </AnimatePresence>
       </div>
 
-      <AlertOverlay type={alertType || "scammed"} show={showAlert} onClose={() => setShowAlert(false)} />
+      <AlertOverlay 
+        type={alertType || "scammed"} 
+        show={showAlert} 
+        onClose={() => setShowAlert(false)}
+        scenarioData={{
+          amount: scamAmount,
+          riskLevel: scamType === "critical" ? "CRITICAL" : scamType === "high" ? "HIGH" : scamType === "medium" ? "MEDIUM" : "LOW",
+          scamType: scamType,
+          reasons: recommendedActions.map(a => a.label) || []
+        }}
+      />
     </div>
   );
 };

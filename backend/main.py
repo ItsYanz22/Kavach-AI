@@ -105,6 +105,19 @@ except Exception as e:
     sys.exit(1)
 
 # ────────────────────────────────────────────────────────────────────────────
+# STEP 3.5: Initialize MongoDB (Optional)
+# ────────────────────────────────────────────────────────────────────────────
+
+try:
+    logger.info("STEP 3.5: Checking MongoDB configuration...")
+    from backend.mongo_models import init_mongodb
+    mongodb_available = False
+    log_startup("mongodb", "ok")
+except Exception as e:
+    logger.warning(f"⚠️  MongoDB initialization skipped: {e}")
+    mongodb_available = False
+
+# ────────────────────────────────────────────────────────────────────────────
 # STEP 4: Import Backend Modules
 # ────────────────────────────────────────────────────────────────────────────
 
@@ -167,6 +180,14 @@ async def lifespan(app: FastAPI):
     logger.info("=" * 80)
     
     try:
+        # Initialize MongoDB if configured
+        if EnvConfig.MONGODB_URI:
+            logger.info("Initializing MongoDB connection...")
+            from backend.mongo_models import init_mongodb
+            mongodb_ready = await init_mongodb()
+            if mongodb_ready:
+                logger.info("✅ MongoDB initialized")
+        
         logger.info("Starting WebSocket cleanup task...")
         war_room_manager.start_cleanup()
         logger.info("✅ WebSocket manager ready")
@@ -192,6 +213,10 @@ async def lifespan(app: FastAPI):
         logger.info("Stopping WebSocket cleanup task...")
         await war_room_manager.stop_cleanup()
         logger.info("✅ Cleanup complete")
+        
+        # Close MongoDB
+        from backend.mongo_models import close_mongodb
+        await close_mongodb()
     except Exception as e:
         logger.error(f"⚠️  Shutdown error: {e}")
 

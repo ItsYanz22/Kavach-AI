@@ -6,13 +6,14 @@ Handles signup, login, logout, token refresh, and user management.
 import uuid
 from datetime import datetime
 from typing import Optional
-from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi import APIRouter, HTTPException, status, Depends, Request
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr, Field
 
 from backend.database_models import get_db, User, init_db
 from backend.auth.auth import PasswordManager, TokenManager, get_current_user
 from backend.logs_structured import log_auth_event
+from backend.mongo_models import save_user_session, UserSessionModel
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -132,9 +133,10 @@ async def signup(request: SignUpRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(request: LoginRequest, db: Session = Depends(get_db)):
+async def login(request: LoginRequest, db: Session = Depends(get_db), http_request: Request = None):
     """
     Authenticate user and return tokens.
+    Also saves login session to MongoDB for user history tracking.
     
     - **email**: User's email
     - **password**: User's password
@@ -167,9 +169,24 @@ async def login(request: LoginRequest, db: Session = Depends(get_db)):
         )
     
     try:
-        # Update last login
+        # Update last login in SQLite
         user.last_login = datetime.utcnow()
         db.commit()
+        
+        # Save session to MongoDB
+        ip_address = http_request.client.host if http_request else None
+        user_agent = http_request.headers.get("user-agent") if http_request else None
+        
+        session = UserSessionModel(
+            email=user.email,
+            username=user.name,
+            user_id=int(user.id) if user.id.isdigit() else hash(user.id) % 10000,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            session_active=True
+        )
+        
+        await save_user_session(session)
         
         # Generate tokens
         tokens = TokenManager.generate_tokens(user.id, user.email)
