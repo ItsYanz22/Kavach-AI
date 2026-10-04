@@ -32,6 +32,17 @@ ARCHITECTURE:
 
 import os
 import sys
+
+# --- RENDER DEPLOYMENT PATH FIX ---
+# If Render's dashboard forces the Start Command to `uvicorn main:app` 
+# with the Root Directory set to `backend`, Python loses the `backend` package context.
+# This dynamically adds the repository root to sys.path so imports always work.
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+# ----------------------------------
+
 import logging
 from pathlib import Path
 from contextlib import asynccontextmanager
