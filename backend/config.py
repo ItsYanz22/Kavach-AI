@@ -51,10 +51,13 @@ class EnvConfig:
     WS_HEARTBEAT_INTERVAL: int = 30  # seconds
     WS_SESSION_TIMEOUT: int = 1800  # 30 minutes
     
+    # CORS
+    CORS_ORIGINS: str = ""  # Comma-separated list; populated from env var
+
     # AI
     AI_REQUEST_TIMEOUT: int = 30  # seconds
     AI_FALLBACK_ENABLED: bool = True
-    
+
     @classmethod
     def load(cls):
         """Load and validate all environment variables."""
@@ -105,13 +108,21 @@ class EnvConfig:
         logger.info(f"🔍 DEBUG_MODE: {cls.DEBUG_MODE}")
         logger.info(f"📝 LOG_LEVEL: {cls.LOG_LEVEL}")
         
-        # Cloud Run
+        # CORS
+        cls.CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "")
+        if cls.CORS_ORIGINS:
+            origin_count = len([o for o in cls.CORS_ORIGINS.split(",") if o.strip()])
+            logger.info(f"✅ CORS_ORIGINS: {origin_count} extra origin(s) configured")
+        else:
+            logger.info("ℹ️  CORS_ORIGINS not set — only localhost origins allowed")
+
+        # Cloud Run / Render
         cls.PORT = int(os.environ.get("PORT", 8080))
         logger.info(f"🚀 PORT: {cls.PORT}")
-        
+
         logger.info("=" * 80)
         logger.info("✅ Configuration loaded successfully\n")
-        
+
         return cls
     
     @classmethod

@@ -1,21 +1,38 @@
 services:
   - type: web
     name: kavach-ai-backend
-    env: docker
-    dockerfilePath: ./Dockerfile
+    # Native Python runtime — no Docker needed on Render
+    env: python
+    # Render clones the full repo; leave rootDir unset so cwd = repo root
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+    # Python version
+    pythonVersion: "3.11.9"
+    # Auto-deploy on every push to main
     autoDeploy: true
     envVars:
-      - key: PORT
-        value: 8080
+      # Render injects PORT automatically; do not hardcode it
       - key: ENVIRONMENT
         value: production
       - key: DEBUG_MODE
         value: "false"
+      - key: LOG_LEVEL
+        value: INFO
+      # Set these in the Render dashboard (marked sync: false so they are never
+      # committed to the repo):
       - key: GROQ_API_KEY
         sync: false
-      - key: CORS_ORIGINS
-        value: "https://your-render-frontend-url.onrender.com,https://your-vercel-app-url.vercel.app"
       - key: JWT_SECRET_KEY
         sync: false
+      # SQLite persists on Render's ephemeral disk — acceptable for prototypes.
+      # Switch to a managed Postgres/PlanetScale URL for production persistence.
       - key: DATABASE_URL
+        value: "sqlite:///./kavach.db"
+      # Optional: MongoDB for session history. Leave blank to disable.
+      - key: MONGODB_URI
+        sync: false
+      # Comma-separated list of allowed frontend origins.
+      # Add your Vercel / Render frontend URL here, e.g.:
+      #   https://kavach-ai.vercel.app,https://kavach-ai-frontend.onrender.com
+      - key: CORS_ORIGINS
         sync: false

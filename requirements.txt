@@ -1,0 +1,35 @@
+# Root-level requirements.txt for Render native Python deployments.
+# Render looks for requirements.txt when env=python.
+# This file delegates to the actual backend/requirements.txt.
+#
+# Render resolves requirements files relative to the repo root.
+# Since our requirements are in backend/requirements.txt, we install
+# with: pip install -r backend/requirements.txt
+# (configured in render.yaml buildCommand)
+#
+# If a deployment tool requires a root-level requirements.txt, this
+# file lists the same dependencies:
+
+# FastAPI Web Framework
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+
+# Data Validation & Serialization
+pydantic[email]==2.5.0
+
+# Environment Configuration
+python-dotenv==1.0.0
+
+# AI/LLM Integration
+groq==0.4.2
+requests==2.31.0
+
+# Security & Authentication
+bcrypt==4.1.1
+PyJWT>=2.8.0
+
+# Database
+sqlalchemy==2.0.23
+psycopg2-binary==2.9.9
+pymongo==4.6.1
+motor==3.3.2

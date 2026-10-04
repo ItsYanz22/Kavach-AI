@@ -263,10 +263,9 @@ CORS_ORIGINS = [
     "http://127.0.0.1:5173",
 ]
 
-# Support production environment origins via env var
-cors_env = os.environ.get("CORS_ORIGINS", "")
-if cors_env:
-    CORS_ORIGINS.extend([o.strip() for o in cors_env.split(",")])
+# Support production environment origins via env var (set CORS_ORIGINS in Render/Cloud Run)
+if EnvConfig.CORS_ORIGINS:
+    CORS_ORIGINS.extend([o.strip() for o in EnvConfig.CORS_ORIGINS.split(",") if o.strip()])
 
 app.add_middleware(
     CORSMiddleware,
@@ -310,24 +309,27 @@ async def health_check():
 
 @app.get("/ready")
 async def readiness_check():
-    """Readiness probe for Cloud Run."""
+    """Readiness probe for Cloud Run / Render."""
     try:
-        # Check database
+        # Check database connectivity using SQLAlchemy 2.x compatible API
+        from sqlalchemy import text
         from backend.database_models import SessionLocal
         db = SessionLocal()
-        db.execute("SELECT 1")
-        db.close()
-        
+        try:
+            db.execute(text("SELECT 1"))
+        finally:
+            db.close()
+
         # Check agents
-        infiltrator_ready = agent_service.infiltrator.client is not None
-        forensic_ready = agent_service.forensic.client is not None
-        mentor_ready = agent_service.mentor.client is not None
-        
+        infiltrator_ready = getattr(agent_service.infiltrator, "client", None) is not None
+        forensic_ready = getattr(agent_service.forensic, "client", None) is not None
+        mentor_ready = getattr(agent_service.mentor, "client", None) is not None
+
         ready = (
             EnvConfig.GROQ_API_KEY is not None or
             fallback_engine is not None
         )
-        
+
         return {
             "ready": ready,
             "database": "ok",
