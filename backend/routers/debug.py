@@ -103,39 +103,23 @@ async def debug_scenario() -> Dict[str, Any]:
     from backend.fallback_scenarios import fallback_engine
     
     try:
-        # Try to generate via agent first
-        prompt = (
-            "Generate a single realistic phishing scam scenario. "
-            "Return ONLY valid JSON with NO markdown:\n"
-            "{\n"
-            '  "scenario_type": "type",\n'
-            '  "message": "the scam message",\n'
-            '  "amount": 0,\n'
-            '  "tip": "educational tip",\n'
-            '  "risk_level": "high",\n'
-            '  "ui_title": "title",\n'
-            '  "ui_description": "description"\n'
-            "}"
-        )
-        
-        scenario = await asyncio.wait_for(
-            asyncio.to_thread(agent_service.infiltrator.send_message, prompt),
-            timeout=10.0
-        )
-        
+        scenario = await agent_service.generate_scam_scenario()
         return {
             "status": "ok",
-            "source": "agent",
-            "scenario": json.loads(scenario) if isinstance(scenario, str) else scenario,
+            "generation_source": scenario.get("generation_source", "groq"),
+            "model_used": scenario.get("model_used", getattr(agent_service.infiltrator, "active_model", "unknown")),
+            "is_ai_generated": scenario.get("is_ai_generated", True),
+            "scenario": scenario,
         }
     except Exception as e:
-        # Fallback to local scenarios
         logger.warning_event("scenario_generation_failed", error=str(e))
-        
+        fallback = fallback_engine.generate_random_scenario()
         return {
             "status": "fallback",
-            "source": "fallback_engine",
-            "scenario": fallback_engine.generate_random_scenario(),
+            "generation_source": "fallback",
+            "model_used": "none",
+            "is_ai_generated": False,
+            "scenario": fallback,
             "error": str(e)[:200],
         }
 

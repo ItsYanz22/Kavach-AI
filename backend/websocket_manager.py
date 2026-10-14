@@ -11,7 +11,7 @@ Handles:
 import asyncio
 import logging
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any, Set, Tuple
+from typing import Optional, Dict, Any, Set, Tuple, List
 from fastapi import WebSocket
 import json
 
@@ -45,16 +45,22 @@ class WarRoomSession:
         self.websocket = ws
         self.user_id: Optional[str] = None
         
+        # Concurrency control
+        self.generation_lock = asyncio.Lock()
+
         # State management
         self.state = SessionState.IDLE
         self.active_scenario: Optional[Dict[str, Any]] = None
         self.awaiting_response = False
         
+        # Session-aware scenario diversity tracking (prevents repetitive scenarios)
+        self.scenario_history: List[Dict[str, Any]] = []
+
         # Timing & rate limiting
         self.created_at = datetime.utcnow()
         self.last_message_at = datetime.utcnow()
         self.last_ai_call_at: Optional[datetime] = None
-        self.ai_call_cooldown_seconds = 2  # Throttle AI calls
+        self.ai_call_cooldown_seconds = 1  # Throttle AI calls
         
         # Message tracking
         self.message_count = 0
@@ -76,13 +82,6 @@ class WarRoomSession:
         Check if we can generate a new scenario.
         Returns (bool, reason_if_false)
         """
-        # Check if scenario is already active
-        if self.state == SessionState.ACTIVE_SCENARIO:
-            return False, "Scenario already active. Awaiting user response."
-        
-        if self.awaiting_response:
-            return False, "Awaiting user response before next scenario."
-        
         # Check scenario limit per session
         if self.scenarios_generated >= self.max_scenarios_per_session:
             return False, f"Session scenario limit ({self.max_scenarios_per_session}) reached."
@@ -100,6 +99,23 @@ class WarRoomSession:
         
         return True, ""
     
+    def record_scenario(self, scenario: Dict[str, Any]) -> None:
+        """Record scenario metadata into session history to prevent future repetition."""
+        record = {
+            "scenario_type": scenario.get("scenario_type") or scenario.get("scam_type") or "unknown",
+            "attacker_persona": scenario.get("attacker_persona") or scenario.get("scammer_personality") or "unknown",
+            "ui_title": scenario.get("ui_title") or "",
+            "manipulation_tactics": scenario.get("manipulation_tactics", []),
+            "summary": (scenario.get("message") or "")[:80]
+        }
+        self.scenario_history.append(record)
+        if len(self.scenario_history) > 8:
+            self.scenario_history = self.scenario_history[-8:]
+
+    def get_history_summary(self) -> List[Dict[str, Any]]:
+        """Return compact summary of recent scenarios in this session."""
+        return [item.copy() for item in self.scenario_history]
+
     def start_scenario(self, scenario: Dict[str, Any]) -> None:
         """Mark that a new scenario has started."""
         self.active_scenario = scenario
@@ -107,7 +123,8 @@ class WarRoomSession:
         self.awaiting_response = True
         self.scenarios_generated += 1
         self.last_ai_call_at = datetime.utcnow()
-        logger.info(f"[SESSION] {self.session_id}: Scenario #{self.scenarios_generated} started")
+        self.record_scenario(scenario)
+        logger.info(f"[SESSION] {self.session_id}: Scenario #{self.scenarios_generated} started ({scenario.get('scenario_type')})")
     
     def record_user_response(self) -> None:
         """Record that user has responded."""
@@ -121,6 +138,7 @@ class WarRoomSession:
         """Mark current scenario as resolved."""
         self.state = SessionState.SCENARIO_RESOLVED
         self.active_scenario = None
+        self.awaiting_response = False
         logger.info(f"[SESSION] {self.session_id}: Scenario resolved")
     
     def to_dict(self) -> Dict[str, Any]:
@@ -128,9 +146,11 @@ class WarRoomSession:
         return {
             "session_id": self.session_id,
             "state": self.state,
+            "has_active_scenario": self.active_scenario is not None,
             "awaiting_response": self.awaiting_response,
             "messages": self.message_count,
             "scenarios": self.scenarios_generated,
+            "recent_types": [s["scenario_type"] for s in self.scenario_history],
             "elapsed_minutes": (datetime.utcnow() - self.created_at).total_seconds() / 60,
             "is_expired": self.is_expired(),
         }

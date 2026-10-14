@@ -25,6 +25,7 @@ class EnvConfig:
     # API Keys
     GROQ_API_KEYS: list = []
     GROQ_API_KEY: Optional[str] = None
+    GROQ_MODEL: Optional[str] = None
     
     # Database
     DATABASE_URL: str = "sqlite:///./kavach.db"
@@ -69,11 +70,14 @@ class EnvConfig:
         groq_keys_raw = os.environ.get("GROQ_API_KEYS", os.environ.get("GROQ_API_KEY", ""))
         cls.GROQ_API_KEYS = [k.strip().strip('"').strip("'") for k in groq_keys_raw.split(",") if k.strip()]
         cls.GROQ_API_KEY = cls.GROQ_API_KEYS[0] if cls.GROQ_API_KEYS else None
+        cls.GROQ_MODEL = os.environ.get("GROQ_MODEL")
         
         if cls.GROQ_API_KEY:
             masked_key = cls.GROQ_API_KEY[:8] + "..." + cls.GROQ_API_KEY[-4:] if len(cls.GROQ_API_KEY) > 12 else "***"
             logger.info(f"✅ GROQ_API_KEY loaded: {masked_key}")
             logger.info(f"✅ Total GROQ keys available: {len(cls.GROQ_API_KEYS)}")
+            if cls.GROQ_MODEL:
+                logger.info(f"✅ Custom GROQ_MODEL configured: {cls.GROQ_MODEL}")
         else:
             logger.warning("⚠️  GROQ_API_KEY not set - AI agents will use fallback mode")
         

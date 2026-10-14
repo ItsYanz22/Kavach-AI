@@ -415,81 +415,111 @@ async def websocket_war_room(websocket: WebSocket):
                         except Exception as e:
                             logger.warning(f"[WS] {session_id} provided invalid token: {e}")
                     
-                    can_generate, reason = session.can_generate_new_scenario()
-                    
-                    if not can_generate:
-                        await websocket.send_json({"error": reason})
-                        continue
-                    
-                    try:
-                        # Generate scenario (AI or fallback)
-                        scenario = await agent_service.generate_scam_scenario()
-                        session.start_scenario(scenario)
+                    async with session.generation_lock:
+                        # If a scenario is already active and user just reconnected or re-typed start,
+                        # do not immediately overwrite unless explicitly requested or previous scenario resolved
+                        can_generate, reason = session.can_generate_new_scenario()
+                        if not can_generate:
+                            await websocket.send_json({"error": reason})
+                            continue
                         
-                        await websocket.send_json({
-                            "event": "scenario_start",
-                            "scenario_id": f"scen_{session_id}_{int(datetime.utcnow().timestamp())}",
-                            "sender": "Infiltrator",
-                            "message": scenario.get("message"),
-                            "amount": scenario.get("amount"),
-                            "tip": scenario.get("tip"),
-                            "scam_type": scenario.get("scenario_type"),
-                            "risk_level": scenario.get("risk_level"),
-                            "ui_title": scenario.get("ui_title"),
-                            "ui_description": scenario.get("ui_description"),
-                            "recommended_actions": scenario.get("recommended_actions", []),
-                            "await_user_response": scenario.get("await_user_response", True),
-                            "next_step": scenario.get("next_step")
-                        })
+                        try:
+                            # Generate scenario with session-aware diversity history
+                            scenario = await agent_service.generate_scam_scenario(
+                                session_history=session.get_history_summary()
+                            )
+                            session.start_scenario(scenario)
+                            
+                            scenario_id = f"scen_{session_id[:8]}_{int(datetime.utcnow().timestamp())}"
+                            await websocket.send_json({
+                                "event": "scenario_start",
+                                "scenario_id": scenario_id,
+                                "sender": "Infiltrator",
+                                "message": scenario.get("message"),
+                                "amount": scenario.get("amount", 0),
+                                "tip": scenario.get("tip", ""),
+                                "scam_type": scenario.get("scenario_type"),
+                                "risk_level": scenario.get("risk_level", "high"),
+                                "ui_title": scenario.get("ui_title"),
+                                "ui_description": scenario.get("ui_description"),
+                                "recommended_actions": scenario.get("recommended_actions", []),
+                                "await_user_response": scenario.get("await_user_response", True),
+                                "next_step": scenario.get("next_step", "wait_for_user"),
+                                "generation_source": scenario.get("generation_source", "groq"),
+                                "is_ai_generated": scenario.get("is_ai_generated", True),
+                                "model_used": scenario.get("model_used", "groq"),
+                                "manipulation_tactics": scenario.get("manipulation_tactics", []),
+                                "educational_explanation": scenario.get("educational_explanation", ""),
+                            })
+                            
+                            logger.info(f"[WS] {session_id}: Scenario started ({scenario.get('scenario_type')}) via {scenario.get('generation_source', 'groq')}")
                         
-                        logger.info(f"[WS] {session_id}: Scenario started")
-                    
-                    except Exception as e:
-                        logger.error(f"[WS] Scenario generation error: {e}")
-                        # Send fallback
-                        scenario = fallback_engine.generate_random_scenario()
-                        session.start_scenario(scenario)
-                        
-                        await websocket.send_json({
-                            "event": "scenario_start",
-                            "sender": "Infiltrator",
-                            "message": scenario.get("message"),
-                            "scenario_type": scenario.get("scenario_type"),
-                            "is_fallback": True,
-                        })
+                        except Exception as e:
+                            logger.error(f"[WS] Scenario generation error: {e}", exc_info=True)
+                            scenario = fallback_engine.generate_random_scenario(
+                                exclude_types=[s.get("scenario_type") for s in session.get_history_summary()]
+                            )
+                            session.start_scenario(scenario)
+                            
+                            await websocket.send_json({
+                                "event": "scenario_start",
+                                "scenario_id": f"scen_{session_id[:8]}_{int(datetime.utcnow().timestamp())}",
+                                "sender": "Infiltrator",
+                                "message": scenario.get("message"),
+                                "amount": scenario.get("amount", 0),
+                                "tip": scenario.get("tip", ""),
+                                "scam_type": scenario.get("scenario_type"),
+                                "risk_level": scenario.get("risk_level", "high"),
+                                "ui_title": scenario.get("ui_title"),
+                                "ui_description": scenario.get("ui_description"),
+                                "recommended_actions": scenario.get("recommended_actions", []),
+                                "await_user_response": True,
+                                "generation_source": "fallback",
+                                "is_fallback": True,
+                                "is_ai_generated": False,
+                            })
                 
                 # User response to active scenario
                 elif session.active_scenario:
-                    try:
-                        # Mark that user has responded to advance the state machine
-                        session.record_user_response()
+                    async with session.generation_lock:
+                        try:
+                            # Mark that user has responded
+                            session.record_user_response()
+                            
+                            next_message = await agent_service.continue_scenario(
+                                session.active_scenario,
+                                user_message
+                            )
+                            
+                            is_resolved = next_message.get("resolved", False)
+                            if is_resolved:
+                                session.resolve_scenario()
+                            else:
+                                session.active_scenario.update(next_message)
+                            
+                            await websocket.send_json({
+                                "event": "scenario_continue",
+                                "sender": "Infiltrator",
+                                "message": next_message.get("message"),
+                                "amount": next_message.get("amount", session.active_scenario.get("amount", 0) if session.active_scenario else 0),
+                                "tip": next_message.get("tip", ""),
+                                "scam_type": next_message.get("scenario_type") or (session.active_scenario.get("scenario_type") if session.active_scenario else ""),
+                                "ui_title": next_message.get("ui_title") or (session.active_scenario.get("ui_title") if session.active_scenario else ""),
+                                "ui_description": next_message.get("ui_description") or (session.active_scenario.get("ui_description") if session.active_scenario else ""),
+                                "recommended_actions": next_message.get("recommended_actions", []),
+                                "await_user_response": not is_resolved,
+                                "escalation_stage": next_message.get("escalation_stage", 2),
+                                "resolved": is_resolved,
+                            })
+                            logger.info(f"[WS] {session_id}: Scenario continued (stage {next_message.get('escalation_stage')}, resolved={is_resolved})")
                         
-                        next_message = await agent_service.continue_scenario(
-                            session.active_scenario,
-                            user_message
-                        )
-                        
-                        await websocket.send_json({
-                            "event": "scenario_continue",
-                            "sender": "Infiltrator",
-                            "message": next_message.get("message"),
-                            "amount": next_message.get("amount"),
-                            "tip": next_message.get("tip"),
-                            "scam_type": next_message.get("scenario_type"),
-                            "ui_title": next_message.get("ui_title"),
-                            "ui_description": next_message.get("ui_description"),
-                            "recommended_actions": next_message.get("recommended_actions", []),
-                            "await_user_response": True,
-                        })
-                    
-                    except Exception as e:
-                        logger.error(f"[WS] Scenario error: {e}")
-                        await websocket.send_json({"error": "Scenario error"})
-                        session.resolve_scenario()
+                        except Exception as e:
+                            logger.error(f"[WS] Scenario error: {e}", exc_info=True)
+                            await websocket.send_json({"error": "Scenario error - continuing simulation"})
                 
                 else:
                     await websocket.send_json({
-                        "message": "No active scenario. Type 'start' to begin."
+                        "message": "No active scenario. Type 'start' or click 'Next Scenario' to begin."
                     })
             
             except WebSocketDisconnect:

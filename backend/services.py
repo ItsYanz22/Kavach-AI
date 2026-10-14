@@ -11,6 +11,7 @@ import asyncio
 import logging
 from typing import Dict, Any, Optional
 import json
+import random
 
 from backend.agents.agent_manager import AgentManager
 from backend.database_models import DetectionHistory
@@ -254,166 +255,298 @@ class AgentService:
                 ]
             }
     
-    async def generate_scam_scenario(self) -> Dict[str, Any]:
+    async def generate_scam_scenario(self, session_history: Optional[list] = None) -> Dict[str, Any]:
         """
-        Generate a realistic, high-fidelity scam scenario using Groq AI.
-        Fallback to database scenarios if AI unavailable.
+        Generate a fresh, unique, high-fidelity cybercrime scenario using Groq AI.
+        Uses session-aware history to avoid repeating recent scenario types, personas, or storylines.
+        Falls back gracefully to the diverse 25-category taxonomy if Groq is unavailable.
         """
         try:
-            # Check if AI is available
             if not self.infiltrator.client:
-                logger.info("AI client not available, using fallback scenarios")
-                return self.fallback_engine.generate_random_scenario()
-            
+                logger.info("AI client not available, selecting diverse fallback scenario")
+                exclude = [s.get("scenario_type") for s in session_history if s.get("scenario_type")] if session_history else None
+                return self.fallback_engine.generate_random_scenario(exclude_types=exclude)
+
+            # Build history exclusion instructions if past scenarios exist for this session
+            history_prompt = ""
+            if session_history:
+                recent_lines = []
+                for s in session_history[-6:]:
+                    s_type = s.get("scenario_type", "unknown")
+                    s_title = s.get("ui_title", "")
+                    s_persona = s.get("attacker_persona", "")
+                    recent_lines.append(f"- Type: {s_type} | Persona: {s_persona} | Title: {s_title}")
+                
+                history_prompt = (
+                    "\n\nRECENT SCENARIOS ALREADY PLAYED IN THIS SESSION (DO NOT REPEAT OR CLOSELY RESEMBLE THESE):\n"
+                    + "\n".join(recent_lines) + "\n"
+                    "CRITICAL: You MUST choose a COMPLETELY DIFFERENT category from the 25 taxonomy types, "
+                    "with a totally different narrative, attacker persona, and manipulation strategy!"
+                )
+
             prompt = (
-                "Generate a NEW, unique, highly realistic Indian scam scenario for cyber-safety simulation. "
-                "Create a FRESH scenario NOT previously generated. Use Indian context: UPI, SBI, PhonePe, Paytm, IRCTC. "
-                "Vary between types: phishing, UPI fraud, lottery, investment, job, loan, deepfake, romance, arrest threat. "
-                "Return ONLY valid JSON with no markdown, no explanations, no backticks. "
-                "Schema: {"
-                '"scenario_type": "upi|phishing|lottery|arrest|investment|job|loan|romance|deepfake", '
-                '"message": "Complete scam text", '
-                '"scammer_personality": "THE POLITE PROFESSIONAL|THE AGGRESSIVE AUTHORITY|THE FRIENDLY RECRUITER|THE URGENT SERVICE EXEC", '
-                '"emotional_strategy": "Urgency|Fear|Greed|Trust", '
-                '"escalation_stage": 1, '
-                '"risk_level": "low|medium|high|critical", '
-                '"amount": integer, '
-                '"ui_title": "⚠️ Title", '
-                '"ui_description": "Tactic description", '
-                '"recommended_actions": [{"label": "💳 Action", "action_id": "pay", "type": "danger"}], '
-                '"await_user_response": true, '
-                '"tip": "Security tip"'
+                "You are generating a fresh cyber-safety simulation scenario for the Kavach AI War Room.\n"
+                "Select ONE distinct attack category from the 25-category taxonomy (e.g. upi_fraud, electricity_threat, "
+                "digital_arrest, customs_parcel, job_scam, qr_code_scam, kyc_phishing, otp_theft, etc.) that hasn't been used recently.\n"
+                "Use authentic Indian digital ecosystem context (e.g., UPI, PhonePe, Paytm, SBI, FedEx, Mumbai Police, BSES, India Post).\n"
+                f"{history_prompt}\n\n"
+                "Return ONLY a valid JSON object with NO markdown, NO backticks, and NO commentary outside the JSON:\n"
+                "{\n"
+                '  "scenario_type": "one_of_the_25_taxonomy_types",\n'
+                '  "difficulty": "medium",\n'
+                '  "attacker_persona": "Specific role, e.g. Customer Support Specialist",\n'
+                '  "victim_context": "Why user received this alert",\n'
+                '  "message": "Realistic initial scam message with persuasive hook and fictional URL/number",\n'
+                '  "initial_message": "Same text as message",\n'
+                '  "conversation_goal": "What the attacker wants user to do",\n'
+                '  "manipulation_tactics": ["urgency", "authority impersonation", "fear"],\n'
+                '  "risk_indicators": ["unverified link", "threatening tone", "unknown sender"],\n'
+                '  "dangerous_action": "approve_payment|verify_credentials|download_file",\n'
+                '  "safe_actions": ["ignore", "analyse", "block", "report"],\n'
+                '  "educational_explanation": "Why this message is fraudulent and how the attack works",\n'
+                '  "recommended_response": "Best practice action the user should take",\n'
+                '  "ui_title": "Concise UI title with emoji (e.g. ⚡ Electricity Disconnection Alert)",\n'
+                '  "ui_description": "1-sentence summary of the deceptive tactic",\n'
+                '  "amount": 2840,\n'
+                '  "tip": "Short, memorable cyber security rule of thumb",\n'
+                '  "danger_button_label": "🔴 Contextual Dangerous Action (e.g. Pay ₹2,840 Bill / Approve UPI)",\n'
+                '  "await_user_response": true\n'
                 "}"
             )
-            
-            logger.info("Calling Groq AI to generate scam scenario...")
+
+            logger.info("Calling Groq AI to generate diverse scenario...")
             result = await asyncio.wait_for(
-                asyncio.to_thread(self.infiltrator.send_message, prompt),
+                asyncio.to_thread(self.infiltrator.send_message, prompt, temperature=0.85, max_tokens=1400),
                 timeout=self.call_timeout_seconds
             )
-            
-            logger.info(f"AI Response (first 200 chars): {result[:200] if result else 'empty'}")
-            
+
             parsed = extract_json_from_text(result)
-            
-            if not parsed:
-                logger.warning(f"Failed to parse AI response as JSON. Raw: {result[:300] if result else 'empty'}")
-                return self.fallback_engine.generate_random_scenario()
-            
-            # Validate required fields (only critical ones)
-            required_fields = ["scenario_type", "message", "ui_title"]
-            if not all(parsed.get(field) for field in required_fields):
-                logger.warning(f"AI response missing critical fields: {parsed}")
-                return self.fallback_engine.generate_random_scenario()
-            
-            # Set defaults for optional fields if missing
-            if not parsed.get("amount"):
-                parsed["amount"] = 0
-            if not parsed.get("ui_description"):
-                parsed["ui_description"] = "Social engineering scam"
-            if not parsed.get("tip"):
-                parsed["tip"] = "Always verify sender identity through official channels"
-            
-            # Ensure stage is set to 1 for initial message
+
+            if not parsed or not parsed.get("message") or not parsed.get("ui_title"):
+                logger.warning(f"Failed to parse valid scenario from Groq output. Raw: {result[:200] if result else 'empty'}")
+                exclude = [s.get("scenario_type") for s in session_history if s.get("scenario_type")] if session_history else None
+                return self.fallback_engine.generate_random_scenario(exclude_types=exclude)
+
+            # Ensure message fields are synchronized
+            msg = parsed.get("message") or parsed.get("initial_message") or ""
+            parsed["message"] = msg
+            parsed["initial_message"] = msg
+
+            # Build contextual action buttons (danger button reflects the exact scenario)
+            danger_label = parsed.get("danger_button_label")
+            if not danger_label:
+                amt = parsed.get("amount", 0)
+                if amt and amt > 0:
+                    danger_label = f"🔴 Pay ₹{amt:,}"
+                elif "kyc" in parsed.get("scenario_type", "").lower() or "verify" in msg.lower():
+                    danger_label = "🔴 Verify Credentials"
+                elif "download" in msg.lower() or "apk" in msg.lower():
+                    danger_label = "🔴 Download & Install"
+                else:
+                    danger_label = "🔴 Comply & Proceed"
+
+            parsed["recommended_actions"] = [
+                {"label": danger_label, "action_id": "pay", "type": "danger"},
+                {"label": "🔍 Analyse Message", "action_id": "analyze", "type": "cyber"},
+                {"label": "🙈 Ignore", "action_id": "ignore", "type": "warning"},
+                {"label": "🚫 Block Sender", "action_id": "block", "type": "danger"},
+                {"label": "⚠️ Report Scam", "action_id": "report", "type": "secondary"},
+            ]
+
             parsed["escalation_stage"] = 1
+            parsed["await_user_response"] = True
+            parsed["next_step"] = "wait_for_user"
             parsed["is_ai_generated"] = True
-            logger.info(f"✅ AI-generated scenario: {parsed.get('scenario_type')}")
+            parsed["generation_source"] = "groq"
+            parsed["model_used"] = getattr(self.infiltrator, "active_model", "groq")
+
+            logger.info(f"✅ Live Groq scenario generated: type={parsed.get('scenario_type')} model={parsed.get('model_used')}")
             return parsed
-        
+
         except asyncio.TimeoutError:
             logger.error(f"Scenario generation timeout after {self.call_timeout_seconds}s, using fallback")
-            return self.fallback_engine.generate_random_scenario()
+            exclude = [s.get("scenario_type") for s in session_history if s.get("scenario_type")] if session_history else None
+            return self.fallback_engine.generate_random_scenario(exclude_types=exclude)
         except Exception as e:
             logger.error(f"Scenario generation error: {e}", exc_info=True)
-            return self.fallback_engine.generate_random_scenario()
+            exclude = [s.get("scenario_type") for s in session_history if s.get("scenario_type")] if session_history else None
+            return self.fallback_engine.generate_random_scenario(exclude_types=exclude)
 
     async def continue_scenario(self, scenario: Dict[str, Any], user_message: str) -> Dict[str, Any]:
         """
-        Continue an active scenario based on user response, progressing through stages.
+        Continue an active scenario based on the user's specific response.
+        Maintains conversational coherence within the SAME scenario storyline without switching topics.
         """
         try:
             current_stage = int(scenario.get("escalation_stage", 1))
             next_stage = current_stage + 1
-            
-            # For fallback scenarios, don't try AI continuation
-            if scenario.get("is_fallback"):
-                logger.info("Using fallback scenario continuation (limited to stage 3)")
-                if current_stage < 3:
-                    return {
-                        "message": "The scammer sends another persuasion message but you're analyzing it...",
-                        "risk_level": "high",
-                        "escalation_stage": next_stage,
-                        "tip": "This is where many people fall for it - scammers are persistent!"
-                    }
-                else:
-                    return {
-                        "message": "The scammer has gone silent. You've stayed alert! Good job.",
-                        "risk_level": "resolved",
-                        "escalation_stage": 5,
-                        "tip": "Remember: Scammers often disconnect when they sense awareness."
-                    }
-            
-            # For AI-generated scenarios, use Groq to continue
-            personality = scenario.get("scammer_personality", "Standard")
+            scenario_type = scenario.get("scenario_type") or scenario.get("scam_type") or "social_engineering"
+            persona = scenario.get("attacker_persona") or scenario.get("scammer_personality") or "The Scammer"
             original_message = scenario.get("message", "")
-            scenario_type = scenario.get("scenario_type", "phishing")
-            
-            prompt = (
-                f"Continue this scam scenario. You are: {personality}\n"
-                f"Scam type: {scenario_type}\n"
-                f"Original message: {original_message}\n"
-                f"Current stage: {current_stage}\n"
-                f"User's response: {user_message}\n\n"
-                f"Progress to stage {next_stage}. If user questions, reassure them. If they comply, push for payment/info. "
-                f"Return ONLY JSON: {{\"message\": \"next scam message\", \"escalation_stage\": {next_stage}, \"amount\": 0, "
-                f"\"ui_title\": \"title\", \"ui_description\": \"desc\", \"tip\": \"tip\"}}"
-            )
-            
-            if not self.infiltrator.client:
-                logger.warning("AI client not available for scenario continuation")
-                # Fallback for when AI is not available
+            ui_title = scenario.get("ui_title", "⚠️ Ongoing Security Simulation")
+            ui_desc = scenario.get("ui_description", "")
+            amount = scenario.get("amount", 0)
+
+            # Check for terminal user actions
+            lower_msg = user_message.lower().strip()
+            if "block" in lower_msg or "[system: user blocked" in lower_msg:
                 return {
-                    "message": "The scammer has disconnected.",
-                    "risk_level": "low",
+                    "message": "🚫 Sender has been blocked. The connection has been severed. You successfully stopped this social engineering attack!",
                     "escalation_stage": 5,
-                    "tip": "You avoided falling for the scam!"
+                    "resolved": True,
+                    "risk_level": "resolved",
+                    "ui_title": ui_title,
+                    "ui_description": "Attack successfully neutralized by blocking.",
+                    "tip": "Blocking the sender is the single most effective countermeasure against cyber deception.",
+                    "recommended_actions": [],
+                    "await_user_response": False
                 }
-            
+
+            if "report" in lower_msg or "[system: user reported" in lower_msg:
+                return {
+                    "message": "⚠️ Scam reported to authorities. Incident logs archived. Well done staying vigilant!",
+                    "escalation_stage": 5,
+                    "resolved": True,
+                    "risk_level": "resolved",
+                    "ui_title": ui_title,
+                    "ui_description": "Incident reported. Threat neutralized.",
+                    "tip": "Reporting suspicious messages helps cybersecurity teams shut down phishing infrastructure.",
+                    "recommended_actions": [],
+                    "await_user_response": False
+                }
+
+            # If scenario reached stage 5+, resolve
+            if current_stage >= 4:
+                return {
+                    "message": "The scammer has terminated the session after realizing you are not complying. Excellent defense!",
+                    "escalation_stage": 5,
+                    "resolved": True,
+                    "risk_level": "resolved",
+                    "ui_title": ui_title,
+                    "ui_description": "Scammer abandoned the attempt after repeated resistance.",
+                    "tip": "Scammers operate on volume; when they encounter persistent friction or delay, they move on.",
+                    "recommended_actions": [],
+                    "await_user_response": False
+                }
+
+            # If Groq is not available, provide coherent context-aware fallback continuation
+            if not self.infiltrator.client:
+                return self._generate_contextual_continuation_fallback(scenario, user_message, next_stage)
+
+            prompt = (
+                f"You are the scammer in an active cyber-safety training simulation.\n"
+                f"CRITICAL RULE: You MUST continue the EXACT active conversation below. DO NOT SWITCH TOPICS OR START A NEW SCAM.\n\n"
+                f"ACTIVE SCENARIO CONTEXT:\n"
+                f"- Scenario Type: {scenario_type}\n"
+                f"- Your Attacker Persona: {persona}\n"
+                f"- Initial Scam Hook: {original_message}\n"
+                f"- Current Conversation Stage: Turn #{current_stage}\n"
+                f"- User's Response: \"{user_message}\"\n\n"
+                f"INSTRUCTIONS FOR YOUR RESPONSE (Turn #{next_stage}):\n"
+                f"1. If user questioned you, said 'no', expressed doubt, or asked for proof:\n"
+                f"   Stay in character. Provide plausible-sounding bureaucratic justification, cite fake reference numbers/regulations, "
+                f"   and increase urgency to convince them to comply.\n"
+                f"2. If user ignored the message (or user says '[SYSTEM: User ignored the message]'):\n"
+                f"   Send a follow-up pressure reminder asking if they are there, warning that the deadline is expiring.\n"
+                f"3. If user complied or asked what to do:\n"
+                f"   Guide them step-by-step toward the trap (approving the UPI request, sharing the OTP, or clicking the mock link).\n\n"
+                f"Return ONLY a valid JSON object (no markdown, no backticks):\n"
+                f"{{\n"
+                f'  "message": "Your next message continuing THIS exact scenario",\n'
+                f'  "escalation_stage": {next_stage},\n'
+                f'  "ui_title": "{ui_title}",\n'
+                f'  "ui_description": "{ui_desc}",\n'
+                f'  "amount": {amount},\n'
+                f'  "tip": "Security tip explaining the persuasion tactic you just used in this turn",\n'
+                f'  "danger_button_label": "🔴 Contextual Action Label",\n'
+                f'  "resolved": false\n'
+                f"}}"
+            )
+
             result = await asyncio.wait_for(
-                asyncio.to_thread(self.infiltrator.send_message, prompt),
+                asyncio.to_thread(self.infiltrator.send_message, prompt, temperature=0.75, max_tokens=900),
                 timeout=self.call_timeout_seconds
             )
-            
+
             parsed = extract_json_from_text(result)
-            
-            if not parsed:
-                logger.warning(f"Scenario continuation failed to parse: {result[:200] if result else 'empty'}")
-                return {
-                    "message": "The scammer has disconnected. You managed to avoid the trap... for now.",
-                    "risk_level": "low",
-                    "escalation_stage": 5,
-                    "tip": "Always be wary of unsolicited messages that try to build trust over time."
-                }
-            
-            # Ensure escalation stage is set
-            if "escalation_stage" not in parsed:
-                parsed["escalation_stage"] = next_stage
-                
+
+            if not parsed or not parsed.get("message"):
+                return self._generate_contextual_continuation_fallback(scenario, user_message, next_stage)
+
+            # Preserve UI metadata
+            parsed["escalation_stage"] = next_stage
+            parsed["ui_title"] = parsed.get("ui_title") or ui_title
+            parsed["ui_description"] = parsed.get("ui_description") or ui_desc
+            parsed["amount"] = parsed.get("amount") if parsed.get("amount") is not None else amount
+
+            # Generate actions matching the continued scenario
+            danger_label = parsed.get("danger_button_label") or scenario.get("danger_button_label")
+            if not danger_label:
+                if amount and amount > 0:
+                    danger_label = f"🔴 Pay ₹{amount:,}"
+                else:
+                    danger_label = "🔴 Comply & Proceed"
+
+            parsed["recommended_actions"] = [
+                {"label": danger_label, "action_id": "pay", "type": "danger"},
+                {"label": "🔍 Analyse Message", "action_id": "analyze", "type": "cyber"},
+                {"label": "🙈 Ignore", "action_id": "ignore", "type": "warning"},
+                {"label": "🚫 Block Sender", "action_id": "block", "type": "danger"},
+                {"label": "⚠️ Report Scam", "action_id": "report", "type": "secondary"},
+            ]
+            parsed["await_user_response"] = True
+
             return parsed
-        
+
         except asyncio.TimeoutError:
-            logger.error("Scenario continuation timeout")
-            return {
-                "message": "System timeout - scenario ended",
-                "risk_level": "medium",
-                "escalation_stage": 5,
-            }
+            logger.error("Scenario continuation timeout - generating fallback continuation")
+            return self._generate_contextual_continuation_fallback(scenario, user_message, current_stage + 1)
         except Exception as e:
             log_llm_error("continue_scenario", e, user_message[:50])
-            return {
-                "message": "Scenario ended due to error",
-                "risk_level": "low",
-            }
+            return self._generate_contextual_continuation_fallback(scenario, user_message, current_stage + 1)
+
+    def _generate_contextual_continuation_fallback(
+        self,
+        scenario: Dict[str, Any],
+        user_message: str,
+        stage: int
+    ) -> Dict[str, Any]:
+        """Generate a coherent continuation within the active scenario context without switching to another scam."""
+        s_type = scenario.get("scenario_type") or scenario.get("scam_type") or "general"
+        ui_title = scenario.get("ui_title", "⚠️ Ongoing Security Simulation")
+        ui_desc = scenario.get("ui_description", "")
+        amount = scenario.get("amount", 0)
+
+        is_ignore = "[system: user ignored" in user_message.lower()
+        is_doubt = any(w in user_message.lower() for w in ["who", "why", "no", "fake", "proof", "how"])
+
+        if is_ignore:
+            msg = "Sir/Madam, are you there? This is an automated final notice. If you do not respond immediately, your account/service will be suspended as per protocol."
+            tip = "Scammers follow up quickly when ignored to re-engage their victims before they consult others."
+        elif is_doubt:
+            msg = f"I understand your hesitation, but this is a time-sensitive alert under Case Reference #{random.randint(10000, 99999)}. We cannot verify details over public chat; please click the link to confirm your identity."
+            tip = "Scammers often respond to doubt by referencing fake case numbers or official policies to rebuild authority."
+        else:
+            msg = f"Thank you for confirming. To complete the verification and prevent penalties, please approve the pending request of ₹{amount:,} or submit the requested details now."
+            tip = "Once initial compliance is established, scammers push directly for the financial or data transfer."
+
+        return {
+            "message": msg,
+            "escalation_stage": stage,
+            "ui_title": ui_title,
+            "ui_description": ui_desc,
+            "amount": amount,
+            "tip": tip,
+            "recommended_actions": [
+                {"label": f"🔴 Comply (₹{amount:,})" if amount else "🔴 Comply & Proceed", "action_id": "pay", "type": "danger"},
+                {"label": "🔍 Analyse Message", "action_id": "analyze", "type": "cyber"},
+                {"label": "🙈 Ignore", "action_id": "ignore", "type": "warning"},
+                {"label": "🚫 Block Sender", "action_id": "block", "type": "danger"},
+                {"label": "⚠️ Report Scam", "action_id": "report", "type": "secondary"},
+            ],
+            "await_user_response": True,
+            "resolved": False
+        }
     
     async def evaluate_health(self) -> Dict[str, Any]:
         """

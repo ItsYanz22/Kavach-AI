@@ -163,7 +163,10 @@ async def simulate() -> ApiResponse:
                 "recommended_actions": scenario.get("recommended_actions", []),
                 "await_user_response": scenario.get("await_user_response", True),
                 "next_step": scenario.get("next_step"),
-                "sender": "Infiltrator"
+                "sender": "Infiltrator",
+                "generation_source": scenario.get("generation_source", "groq"),
+                "is_ai_generated": scenario.get("is_ai_generated", True),
+                "model_used": scenario.get("model_used", "groq")
             }
         )
     
