@@ -60,7 +60,7 @@ Write-Host "Executing: gcloud run deploy kavach-ai --source . --platform managed
 # or since it might default to Dockerfile, let's explicitly specify the Dockerfile using a gcloud builds submit
 Write-Host "Step 1: Submitting build to Cloud Build..."
 $ImageName = "gcr.io/$(gcloud config get-value project)/kavach-ai:latest"
-gcloud builds submit --tag $ImageName -f Dockerfile.production
+gcloud builds submit --tag $ImageName -f Dockerfile
 
 Write-Host "Step 2: Deploying image to Cloud Run..."
 gcloud run deploy kavach-ai `
