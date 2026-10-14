@@ -59,6 +59,11 @@ $ImageName = "gcr.io/$Project/kavach-ai:latest"
 Write-Host "[INFO] Step 1: Submitting build to Cloud Build..." -ForegroundColor Cyan
 Write-Host "Building image: $ImageName from current directory Dockerfile..."
 gcloud builds submit --tag $ImageName .
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[ERROR] Cloud Build failed with exit code $LASTEXITCODE." -ForegroundColor Red
+    Write-Host "[HINT] If you see BILLING_DISABLED or 403, visit: https://console.developers.google.com/billing/enable?project=$Project" -ForegroundColor Yellow
+    exit $LASTEXITCODE
+}
 
 Write-Host "[INFO] Step 2: Deploying image to Cloud Run..." -ForegroundColor Cyan
 gcloud run deploy kavach-ai `
@@ -67,6 +72,10 @@ gcloud run deploy kavach-ai `
     --region $Region `
     --allow-unauthenticated `
     --update-env-vars="ENVIRONMENT=production"
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[ERROR] Cloud Run deploy failed with exit code $LASTEXITCODE." -ForegroundColor Red
+    exit $LASTEXITCODE
+}
 
 Write-Host "[SUCCESS] Deployment Complete!" -ForegroundColor Green
 $ServiceUrl = gcloud run services describe kavach-ai --region $Region --format="value(status.url)"
