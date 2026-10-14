@@ -32,3 +32,8 @@ dist/
 build/
 *.db
 .vercel
+
+# Virtual environments
+venv/
+.venv/
+env/
